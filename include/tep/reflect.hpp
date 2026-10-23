@@ -27,7 +27,9 @@
 #include <cstdint>
 #include <exception>
 #include <expected>
-#include <optional>
+#include <iterator>
+#include <memory>
+#include <new>
 #include <span>
 #include <string>
 #include <string_view>
@@ -69,11 +71,58 @@ struct message_traits<message<Schema, Index>> {
 template <class T>
 concept synthesized_message = requires { message_traits<T>::index; };
 
+// A singular message field: an optional value on the heap, so an absent sub-message costs one
+// pointer instead of its whole size (a message type holds its sub-messages through boxes).
+template <class T>
+class box {
+public:
+    box() noexcept = default;
+    box(const T& v) : p_(std::make_unique<T>(v)) {}
+    box(T&& v) : p_(std::make_unique<T>(std::move(v))) {}
+    box(const box& o) : p_(o.p_ ? std::make_unique<T>(*o.p_) : nullptr) {}
+    box(box&&) noexcept = default;
+    box& operator=(const box& o) {
+        if (this != &o) p_ = o.p_ ? std::make_unique<T>(*o.p_) : nullptr;
+        return *this;
+    }
+    box& operator=(box&&) noexcept = default;
+    box& operator=(const T& v) {
+        p_ = std::make_unique<T>(v);
+        return *this;
+    }
+    box& operator=(T&& v) {
+        p_ = std::make_unique<T>(std::move(v));
+        return *this;
+    }
+    ~box() = default;
+
+    [[nodiscard]] bool has_value() const noexcept { return p_ != nullptr; }
+    explicit operator bool() const noexcept { return p_ != nullptr; }
+    T& operator*() noexcept { return *p_; }
+    const T& operator*() const noexcept { return *p_; }
+    T* operator->() noexcept { return p_.get(); }
+    const T* operator->() const noexcept { return p_.get(); }
+    T& emplace() {
+        p_ = std::make_unique<T>();
+        return *p_;
+    }
+    void reset() noexcept { p_.reset(); }
+
+    friend bool operator==(const box& a, const box& b) {
+        if (a.has_value() != b.has_value()) return false;
+        return !a.has_value() || *a == *b;
+    }
+
+private:
+    std::unique_ptr<T> p_;
+};
+
 enum class decode_error : std::uint8_t {
     truncated,
     malformed_varint,
     length_overflow,
-    group_not_supported,
+    malformed_group,
+    too_deep,
     bad_wire_type,
     bad_tag,
     invalid_utf8,
@@ -99,27 +148,23 @@ consteval std::string format_error(const schema::error& e) {
     return s;
 }
 
+// C++26 keywords and alternative tokens, sorted for binary search.
 inline constexpr std::string_view cpp_keywords[] = {
-    "alignas",   "alignof",      "and",         "and_eq",    "asm",          "auto",        "bitand",
-    "bitor",     "bool",         "break",       "case",      "catch",        "char",        "char8_t",
-    "char16_t",  "char32_t",     "class",       "compl",     "concept",      "const",       "consteval",
-    "constexpr", "constinit",    "const_cast",  "continue",  "co_await",     "co_return",   "co_yield",
-    "decltype",  "default",      "delete",      "do",        "double",       "dynamic_cast", "else",
-    "enum",      "explicit",     "export",      "extern",    "false",        "float",       "for",
-    "friend",    "goto",         "if",          "inline",    "int",          "long",        "mutable",
-    "namespace", "new",          "noexcept",    "not",       "not_eq",       "nullptr",     "operator",
-    "or",        "or_eq",        "private",     "protected", "public",       "register",    "reinterpret_cast",
-    "requires",  "return",       "short",       "signed",    "sizeof",       "static",      "static_assert",
-    "static_cast", "struct",     "switch",      "template",  "this",         "thread_local", "throw",
-    "true",      "try",          "typedef",     "typeid",    "typename",     "union",       "unsigned",
-    "using",     "virtual",      "void",        "volatile",  "wchar_t",      "while",       "xor",
-    "xor_eq",
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break", "case",
+    "catch", "char", "char16_t", "char32_t", "char8_t", "class", "co_await", "co_return", "co_yield",
+    "compl", "concept", "const", "const_cast", "consteval", "constexpr", "constinit", "continue",
+    "contract_assert", "decltype", "default", "delete", "do", "double", "dynamic_cast", "else", "enum",
+    "explicit", "export", "extern", "false", "float", "for", "friend", "goto", "if", "inline", "int", "long",
+    "mutable", "namespace", "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
+    "private", "protected", "public", "register", "reinterpret_cast", "requires", "return", "short",
+    "signed", "sizeof", "static", "static_assert", "static_cast", "struct", "switch", "template", "this",
+    "thread_local", "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using",
+    "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
 };
 
 // A field named like a C++ keyword gets a trailing underscore, as protoc's C++ output does.
 consteval std::string member_name(std::string_view n) {
-    for (const auto kw : cpp_keywords)
-        if (kw == n) return std::string(n) + "_";
+    if (std::binary_search(std::begin(cpp_keywords), std::end(cpp_keywords), n)) return std::string(n) + "_";
     return std::string(n);
 }
 
@@ -178,16 +223,20 @@ struct schema_tables {
 
 namespace detail {
 
-consteval void check_member_names(const schema::message& m, const std::vector<field_meta>& fields,
-                                  std::size_t first) {
-    for (std::size_t a = first; a < fields.size(); ++a)
-        for (std::size_t b = first; b < a; ++b)
-            if (std::string_view(fields[a].member) == std::string_view(fields[b].member)) {
-                const schema::field& fd = m.fields[a - first];
-                fail("tep: schema error at line " + to_dec(fd.loc.line) + ", column " + to_dec(fd.loc.column) +
-                     ": field name collides with another after C++ keyword escaping ('" +
-                     std::string(fields[a].member) + "')");
-            }
+// Escaping can only collide when a field is named like a keyword plus an underscore (`class`
+// and `class_`). Sorting keeps this O(n log n) in constant evaluation.
+consteval void check_member_names(const schema::message& m, const std::vector<std::string>& members) {
+    std::vector<std::pair<std::string_view, std::size_t>> sorted;
+    sorted.reserve(members.size());
+    for (std::size_t k = 0; k < members.size(); ++k) sorted.emplace_back(members[k], k);
+    std::sort(sorted.begin(), sorted.end());
+    for (std::size_t k = 1; k < sorted.size(); ++k) {
+        if (sorted[k].first != sorted[k - 1].first) continue;
+        const schema::field& fd = m.fields[std::max(sorted[k].second, sorted[k - 1].second)];
+        fail("tep: schema error at line " + to_dec(fd.loc.line) + ", column " + to_dec(fd.loc.column) +
+             ": field name collides with another after C++ keyword escaping ('" + std::string(sorted[k].first) +
+             "')");
+    }
 }
 
 consteval schema_tables build_tables(std::string_view text) {
@@ -197,14 +246,19 @@ consteval schema_tables build_tables(std::string_view text) {
 
     std::vector<message_meta> messages;
     std::vector<field_meta> fields;
+    std::vector<std::string> members;
     for (const auto& m : f.messages) {
         const std::size_t first = fields.size();
         messages.push_back({std::define_static_string(m.full_name), static_cast<std::uint32_t>(first),
                             static_cast<std::uint32_t>(m.fields.size())});
-        for (const auto& fd : m.fields)
-            fields.push_back({std::define_static_string(member_name(fd.name)), fd.number, fd.kind, fd.type,
-                              fd.type_index, fd.repeated, fd.packed});
-        check_member_names(m, fields, first);
+        members.clear();
+        for (const auto& fd : m.fields) members.push_back(member_name(fd.name));
+        check_member_names(m, members);
+        for (std::size_t k = 0; k < m.fields.size(); ++k) {
+            const schema::field& fd = m.fields[k];
+            fields.push_back({std::define_static_string(members[k]), fd.number, fd.kind, fd.type, fd.type_index,
+                              fd.repeated, fd.packed});
+        }
     }
     std::vector<enum_meta> enums;
     std::vector<enum_value_meta> values;
@@ -273,7 +327,7 @@ consteval std::meta::info message_type(std::uint32_t index) {
 
 // Member types: proto3 scalars map to fixed-width integers, float, double, bool and
 // std::string (string and bytes, as in protoc's C++ output); enums to std::int32_t (proto3
-// enums are open); a singular message to std::optional<M>; repeated T to std::vector<T>.
+// enums are open); a singular message to tep::box<M>; repeated T to std::vector<T>.
 template <class Schema>
 consteval std::meta::info member_type(const field_meta& f) {
     std::meta::info base{};
@@ -283,7 +337,7 @@ consteval std::meta::info member_type(const field_meta& f) {
         case schema::field_kind::message: base = message_type<Schema>(f.type_index); break;
     }
     if (f.repeated) return std::meta::substitute(^^std::vector, {base});
-    if (f.kind == schema::field_kind::message) return std::meta::substitute(^^std::optional, {base});
+    if (f.kind == schema::field_kind::message) return std::meta::substitute(^^box, {base});
     return base;
 }
 
@@ -594,13 +648,17 @@ std::vector<std::byte> encode(const T& msg) {
     return out;
 }
 
-// Replaces `out` with the gRPC length-prefixed form of msg.
+// Replaces `out` with the gRPC length-prefixed form of msg. Returns false, leaving `out` empty,
+// when the message does not fit the 32-bit length of the prefix.
 template <synthesized_message T>
-void encode_framed(const T& msg, std::vector<std::byte>& out) {
+bool encode_framed(const T& msg, std::vector<std::byte>& out) {
     const std::size_t n = byte_size(msg);
+    out.clear();
+    if (n > 0xFFFF'FFFFu) return false;
     out.resize(grpc::prefix_size + n);
     grpc::write_prefix(out.data(), false, static_cast<std::uint32_t>(n));
     encode_to(msg, out.data() + grpc::prefix_size);
+    return true;
 }
 
 namespace detail {
@@ -610,7 +668,8 @@ constexpr decode_error from_read(wire::read_error e) noexcept {
         case wire::read_error::truncated: return decode_error::truncated;
         case wire::read_error::malformed_varint: return decode_error::malformed_varint;
         case wire::read_error::length_overflow: return decode_error::length_overflow;
-        case wire::read_error::group_not_supported: return decode_error::group_not_supported;
+        case wire::read_error::malformed_group: return decode_error::malformed_group;
+        case wire::read_error::too_deep: return decode_error::too_deep;
         case wire::read_error::bad_wire_type: return decode_error::bad_wire_type;
     }
     return decode_error::bad_wire_type;
@@ -674,7 +733,7 @@ template <field_meta F, class V>
 constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_error& err) {
     wire::read_error re{};
     if constexpr (F.kind == schema::field_kind::message) {
-        if (wt != wire::wire_type::len) return r.skip(wt, re) || (err = from_read(re), false);
+        if (wt != wire::wire_type::len) return r.skip(wt, F.number, re) || (err = from_read(re), false);
         std::span<const std::byte> s;
         if (!r.length_delimited(s, re)) return err = from_read(re), false;
         if constexpr (F.repeated) {
@@ -707,13 +766,13 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
                     return true;
                 }
             }
-            if (wt != ewt) return r.skip(wt, re) || (err = from_read(re), false);
+            if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
             E e{};
             if (!read_value<S>(r, e, err)) return false;
             v.push_back(std::move(e));
             return true;
         } else {
-            if (wt != ewt) return r.skip(wt, re) || (err = from_read(re), false);
+            if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
             return read_value<S>(r, v, err);
         }
     }
@@ -728,8 +787,10 @@ constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
     while (!r.done()) {
         std::uint64_t tag = 0;
         wire::read_error re{};
+        const std::byte* const tag_start = r.p;
         if (!r.varint(tag, re)) return err = detail::from_read(re), false;
-        if (tag > 0xFFFF'FFFFu || (tag >> 3) == 0) return err = decode_error::bad_tag, false;
+        // libprotobuf reads a tag as at most five bytes, with a field number of at least 1.
+        if (tag > 0xFFFF'FFFFu || (tag >> 3) == 0 || r.p - tag_start > 5) return err = decode_error::bad_tag, false;
         const auto number = static_cast<std::uint32_t>(tag >> 3);
         const auto wt = static_cast<wire::wire_type>(tag & 7u);
         bool known = false;
@@ -741,7 +802,7 @@ constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
                 if (!detail::read_field<f>(msg.[:mem:], r, wt, err)) return false;
             }
         }
-        if (!known && !r.skip(wt, re)) return err = detail::from_read(re), false;
+        if (!known && !r.skip(wt, number, re)) return err = detail::from_read(re), false;
     }
     return true;
 }
@@ -843,31 +904,48 @@ public:
 
     [[nodiscard]] static constexpr std::size_t method_count() noexcept { return service.rpc_count; }
     [[nodiscard]] static constexpr std::string_view path(std::size_t i) noexcept {
-        return tables<Schema>.rpcs[service.first_rpc + i].path;
+        return i < service.rpc_count ? std::string_view(tables<Schema>.rpcs[service.first_rpc + i].path)
+                                     : std::string_view{};
     }
 
     // Runs one unary call. `request` is the message payload without the gRPC prefix. On ok,
-    // `response` holds the length-prefixed response message.
+    // `response` holds the length-prefixed response message; otherwise it is empty. An
+    // allocation failure is RESOURCE_EXHAUSTED and any other exception from the handler is
+    // UNKNOWN, as gRPC servers report them; no exception leaves this function.
     grpc::status invoke(std::string_view method_path, std::span<const std::byte> request,
-                        std::vector<std::byte>& response) {
-        response.clear();
-        template for (constexpr std::uint32_t k : rpc_indices) {
-            constexpr rpc_meta r = tables<Schema>.rpcs[k];
-            if (method_path == std::string_view(r.path)) return call<k>(request, response);
+                        std::vector<std::byte>& response) noexcept {
+        grpc::status st = grpc::status::unimplemented;
+        try {
+            response.clear();
+            bool found = false;
+            template for (constexpr std::uint32_t k : rpc_indices) {
+                constexpr rpc_meta r = tables<Schema>.rpcs[k];
+                if (!found && method_path == std::string_view(r.path)) {
+                    found = true;
+                    st = call<k>(request, response);
+                }
+            }
+        } catch (const std::bad_alloc&) {
+            st = grpc::status::resource_exhausted;
+        } catch (...) {
+            st = grpc::status::unknown;
         }
-        return grpc::status::unimplemented;
+        if (st != grpc::status::ok) response.clear();
+        return st;
     }
 
     // Runs one unary call from a whole request body (prefix included).
     grpc::status invoke_framed(std::string_view method_path, std::span<const std::byte> body,
-                               std::vector<std::byte>& response) {
+                               std::vector<std::byte>& response) noexcept {
         response.clear();
         const auto frame = grpc::parse_unary(body);
         if (!frame) {
             return frame.error() == grpc::frame_error::too_large ? grpc::status::resource_exhausted
                                                                  : grpc::status::internal;
         }
-        if (frame->compressed) return grpc::status::unimplemented;  // no grpc-encoding is accepted
+        // No grpc-encoding is negotiated, so a compressed message is a protocol error (INTERNAL),
+        // as the gRPC specification and grpc-go treat it.
+        if (frame->compressed) return grpc::status::internal;
         return invoke(method_path, frame->payload, response);
     }
 
@@ -886,13 +964,12 @@ private:
         if (!merge_from(req, wire::reader(request), err)) return grpc::status::internal;
         if constexpr (detail::returns_response<Impl, Req, Resp, h>) {
             const Resp resp = impl_.[:h:](req);
-            encode_framed(resp, response);
-            return grpc::status::ok;
+            return encode_framed(resp, response) ? grpc::status::ok : grpc::status::resource_exhausted;
         } else {
             Resp resp{};
             const grpc::status st = impl_.[:h:](req, resp);
-            if (st == grpc::status::ok) encode_framed(resp, response);
-            return st;
+            if (st != grpc::status::ok) return st;
+            return encode_framed(resp, response) ? grpc::status::ok : grpc::status::resource_exhausted;
         }
     }
 };

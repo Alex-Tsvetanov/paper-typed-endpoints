@@ -38,7 +38,7 @@ service Greeter {
   option deprecated = false;
   rpc SayHello(HelloRequest) returns (HelloReply);
   rpc SayNothing(.tep.demo.HelloRequest) returns (HelloReply) {
-    option (google.api.http) = { get: "/v1/hello" body: "*" };
+    option idempotency_level = NO_SIDE_EFFECTS;
   }
 }
 )";
@@ -86,13 +86,13 @@ constexpr bad_case bad_cases[] = {
     {"missing field number", P3 "message A { int32 a = ; }\n", errc::expected_integer, 2, 23},
     {"field number zero", P3 "message A { int32 a = 0; }\n", errc::field_number_out_of_range, 2, 23},
     {"field number above 2^29-1", P3 "message A { int32 a = 536870912; }\n", errc::field_number_out_of_range, 2, 23},
-    {"implementation range", P3 "message A { int32 a = 19000; }\n", errc::field_number_in_implementation_range, 2, 19},
-    {"duplicate field number", P3 "message A {\n  int32 a = 1;\n  int32 b = 1;\n}\n", errc::duplicate_field_number, 4, 9},
+    {"implementation range", P3 "message A { int32 a = 19000; }\n", errc::field_number_in_implementation_range, 2, 23},
+    {"duplicate field number", P3 "message A {\n  int32 a = 1;\n  int32 b = 1;\n}\n", errc::duplicate_field_number, 4, 13},
     {"duplicate field name", P3 "message A {\n  int32 a = 1;\n  string a = 2;\n}\n", errc::duplicate_field_name, 4, 10},
-    {"reserved number", P3 "message A {\n  reserved 2, 5 to 7;\n  int32 a = 6;\n}\n", errc::field_number_reserved, 4, 9},
+    {"reserved number", P3 "message A {\n  reserved 2, 5 to 7;\n  int32 a = 6;\n}\n", errc::field_number_reserved, 4, 13},
     {"reserved name", P3 "message A {\n  reserved \"a\";\n  int32 a = 1;\n}\n", errc::field_name_reserved, 4, 9},
     {"bad reserved range", P3 "message A { reserved 9 to 3; }\n", errc::bad_reserved_range, 2, 22},
-    {"unknown type", P3 "message A { Missing m = 1; }\n", errc::unknown_type, 2, 21},
+    {"unknown type", P3 "message A { Missing m = 1; }\n", errc::unknown_type, 2, 13},
     {"map field", P3 "message A { map<string, int32> m = 1; }\n", errc::unsupported_map, 2, 13},
     {"oneof", P3 "message A { oneof x { int32 a = 1; } }\n", errc::unsupported_oneof, 2, 13},
     {"proto3 optional", P3 "message A { optional int32 a = 1; }\n", errc::unsupported_optional, 2, 13},
@@ -113,8 +113,8 @@ constexpr bad_case bad_cases[] = {
     {"duplicate enum value", P3 "enum E { A = 0; A = 1; }\n", errc::duplicate_enum_value_name, 2, 17},
     {"enum value out of range", P3 "enum E { A = 0; B = 2147483648; }\n", errc::enum_value_out_of_range, 2, 21},
     {"unterminated message", P3 "message A {\n  int32 a = 1;\n", errc::unexpected_end, 4, 1},
-    {"recursive message", P3 "message A { B b = 1; }\nmessage B { A a = 1; }\n", errc::recursive_message, 3, 15},
-    {"self-recursive repeated", P3 "message A { repeated A kids = 1; }\n", errc::recursive_message, 2, 24},
+    {"recursive message", P3 "message A { B b = 1; }\nmessage B { A a = 1; }\n", errc::recursive_message, 3, 13},
+    {"self-recursive repeated", P3 "message A { repeated A kids = 1; }\n", errc::recursive_message, 2, 22},
     {"packed on a string", P3 "message A { repeated string s = 1 [packed = true]; }\n", errc::packed_on_non_packable, 2, 29},
     {"packed on a singular", P3 "message A { int32 s = 1 [packed = true]; }\n", errc::packed_on_non_packable, 2, 19},
     {"proto2 default", P3 "message A { int32 a = 1 [default = 3]; }\n", errc::unsupported_option, 2, 26},
@@ -126,6 +126,29 @@ constexpr bad_case bad_cases[] = {
     {"unterminated string", "syntax = \"proto3;\n", errc::unterminated_string, 1, 10},
     {"integer overflow", P3 "message A { int32 a = 99999999999999999999; }\n", errc::integer_overflow, 2, 23},
     {"stray top-level token", P3 "message A {}\nfoo\n", errc::unexpected_token, 3, 1},
+    // protoc resolves the first component of a dotted name innermost first, then requires the rest.
+    {"dotted name, first component", P3 "package p;\nmessage A { message B {} }\nmessage M { message A {} A.B f = 1; }\n",
+     errc::unknown_type, 4, 26},
+    // C++-like scoping: enum values live in the scope that holds their enum.
+    {"enum values share a scope", P3 "enum A { UNKNOWN = 0; }\nenum B { UNKNOWN = 0; }\n", errc::duplicate_definition, 3, 10},
+    {"message and enum value", P3 "message X {}\nenum A { X = 0; }\n", errc::duplicate_definition, 3, 10},
+    {"field and nested message", P3 "message M { message foo {} int32 foo = 1; }\n", errc::duplicate_definition, 2, 34},
+    {"duplicate rpc", P3 "message A {}\nservice S { rpc M(A) returns (A); rpc M(A) returns (A); }\n",
+     errc::duplicate_definition, 3, 39},
+    {"json name conflict", P3 "message M { int32 foo_bar = 1; int32 fooBar = 2; }\n", errc::json_name_conflict, 2, 38},
+    {"enum prefix conflict", P3 "enum Color { COLOR_RED = 0; RED = 1; }\n", errc::enum_value_name_conflict, 2, 29},
+    {"reserved zero", P3 "message A { reserved 0; }\n", errc::field_number_out_of_range, 2, 22},
+    {"reserved overlap", P3 "message A { reserved 1 to 5, 4; }\n", errc::reserved_overlap, 2, 30},
+    {"reserved name twice", P3 "message A { reserved \"x\", \"x\"; }\n", errc::duplicate_reserved_name, 2, 27},
+    {"allow_alias unused", P3 "enum E { option allow_alias = true; A = 0; }\n", errc::allow_alias_unused, 2, 6},
+    {"packed false on a singular", P3 "message A { int32 s = 1 [packed = false]; }\n", errc::packed_on_non_packable, 2, 19},
+    {"packed twice", P3 "message A { repeated int32 s = 1 [packed = true, packed = false]; }\n",
+     errc::unsupported_option, 2, 50},
+    {"editions feature option", P3 "option features.field_presence = EXPLICIT;\n", errc::unsupported_editions, 2, 8},
+    {"unknown file option", P3 "option no_such_option = 1;\n", errc::unsupported_option, 2, 8},
+    {"unknown field option", P3 "message A { int32 a = 1 [no_such = 1]; }\n", errc::unsupported_option, 2, 26},
+    {"custom option", P3 "message A {}\nservice S { rpc M(A) returns (A) { option (google.api.http) = { get: \"/v\" }; } }\n",
+     errc::unsupported_option, 3, 43},
 };
 
 #undef P3
@@ -219,9 +242,18 @@ enum E { option allow_alias = true; Z = 0; ZERO = 0; NEG = -5; reserved 7, 9 to 
     TEP_CHECK(f->enums[0].values[2].number == -5);
     // Keywords of other contexts are plain identifiers where a name is expected.
     TEP_CHECK(parse("syntax = \"proto3\"; message A { int32 message = 1; int32 service = 2; int32 map = 3; }").has_value());
-    // The error token views the source.
-    const auto e = first_error("syntax = \"proto3\";\nmessage A { Missing m = 1; }\n");
-    TEP_CHECK(e && e->token == "m");
+    // The error token views the source: the type as written, and the duplicate's own name.
+    const auto e = first_error("syntax = \"proto3\";\nmessage A { a.Missing m = 1; }\n");
+    TEP_CHECK(e && e->token == "a.Missing");
+    const auto d =
+        first_error("syntax = \"proto3\";\nmessage LongEnoughNameToLeaveSso {}\nmessage LongEnoughNameToLeaveSso {}\n");
+    TEP_CHECK(d && d->code == errc::duplicate_definition && d->token == "LongEnoughNameToLeaveSso");
+    // Aliases may differ only by the prefix; values that do not collide are fine.
+    TEP_CHECK(parse("syntax = \"proto3\"; enum Color { option allow_alias = true; COLOR_RED = 0; RED = 0; BLUE = 1; }")
+                  .has_value());
+    TEP_CHECK(parse("syntax = \"proto3\"; enum Foo { FOO_BAR_BAZ = 0; FOO_BARBAZ = 1; }").has_value());
+    // A package component is a scope for dotted names.
+    TEP_CHECK(parse("syntax = \"proto3\"; package a.b; message X {} message Y { b.X x = 1; a.b.X y = 2; }").has_value());
 }
 
 }  // namespace

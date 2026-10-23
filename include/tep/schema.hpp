@@ -5,6 +5,9 @@
 // resolution. Plain C++23, usable at run time and in constant evaluation. It never throws:
 // the first error is returned with its line and column. The reflection layer turns that error
 // into a compile-time diagnostic.
+//
+// Lifetime: names in the returned file and the token of an error view the source text, so the
+// source must outlive them.
 #pragma once
 
 #include <algorithm>
@@ -54,6 +57,9 @@ enum class errc : std::uint8_t {
     field_number_reserved,
     field_name_reserved,
     bad_reserved_range,
+    reserved_overlap,
+    duplicate_reserved_name,
+    json_name_conflict,
     duplicate_definition,
     unknown_type,
     not_a_message_type,
@@ -62,6 +68,8 @@ enum class errc : std::uint8_t {
     enum_first_value_not_zero,
     duplicate_enum_value_name,
     enum_value_alias,
+    allow_alias_unused,
+    enum_value_name_conflict,
     enum_value_out_of_range,
     packed_on_non_packable,
     unsupported_option,
@@ -99,6 +107,9 @@ enum class errc : std::uint8_t {
         case errc::field_number_reserved: return "field number is reserved";
         case errc::field_name_reserved: return "field name is reserved";
         case errc::bad_reserved_range: return "reserved range has its start after its end";
+        case errc::reserved_overlap: return "reserved ranges overlap";
+        case errc::duplicate_reserved_name: return "name is reserved twice";
+        case errc::json_name_conflict: return "two fields have the same JSON name";
         case errc::duplicate_definition: return "name is defined twice";
         case errc::unknown_type: return "unknown type name";
         case errc::not_a_message_type: return "rpc request and response types must be messages";
@@ -107,10 +118,14 @@ enum class errc : std::uint8_t {
         case errc::enum_first_value_not_zero: return "the first enum value must be zero in proto3";
         case errc::duplicate_enum_value_name: return "duplicate enum value name";
         case errc::enum_value_alias: return "two enum values share a number without allow_alias";
+        case errc::allow_alias_unused: return "allow_alias is set but no two values share a number";
+        case errc::enum_value_name_conflict:
+            return "two enum values have the same name once the enum name prefix and case are ignored";
         case errc::enum_value_out_of_range: return "enum value must fit in int32";
         case errc::packed_on_non_packable:
-            return "[packed = true] is only valid on repeated numeric, bool and enum fields";
-        case errc::unsupported_option: return "unsupported option";
+            return "[packed] is only valid on repeated numeric, bool and enum fields";
+        case errc::unsupported_option:
+            return "unknown or unsupported option (custom options need an import, which is not supported)";
         case errc::unsupported_map: return "map fields are not supported";
         case errc::unsupported_oneof: return "oneof is not supported";
         case errc::unsupported_optional: return "proto3 optional fields are not supported";
@@ -146,12 +161,23 @@ struct field {
     bool repeated = false;
     bool packed = false;             // effective encoding of a repeated field
     std::int8_t packed_option = -1;  // -1 unset, 0 [packed = false], 1 [packed = true]
-    location loc{};
+    location loc{};                  // the field name
+    location type_loc{};
+    location number_loc{};
+    std::string_view type_text;      // the type as written, viewing the source
+    std::string_view number_text;
 };
 
 struct reserved_range {
     std::int64_t lo = 0;
     std::int64_t hi = 0;  // inclusive
+    location loc{};
+    std::string_view text;
+};
+
+struct reserved_name {
+    std::string_view name;
+    location loc{};
 };
 
 struct message {
@@ -160,7 +186,7 @@ struct message {
     std::uint32_t parent = npos;
     std::vector<field> fields;
     std::vector<reserved_range> reserved_ranges;
-    std::vector<std::string_view> reserved_names;
+    std::vector<reserved_name> reserved_names;
     location loc{};
 };
 
@@ -176,7 +202,7 @@ struct enumeration {
     std::uint32_t parent = npos;
     std::vector<enum_value> values;
     std::vector<reserved_range> reserved_ranges;
-    std::vector<std::string_view> reserved_names;
+    std::vector<reserved_name> reserved_names;
     bool allow_alias = false;
     location loc{};
 };
@@ -458,7 +484,7 @@ public:
     [[nodiscard]] constexpr const error& failure() const noexcept { return err_; }
 
 private:
-    enum class level : std::uint8_t { file, message, enumeration, service, rpc };
+    enum class level : std::uint8_t { file, message, field, enumeration, enum_value, service, rpc };
 
     std::vector<token> toks_;
     std::size_t i_ = 0;
@@ -472,6 +498,12 @@ private:
         return k < toks_.size() ? toks_[k] : toks_.back();
     }
     [[nodiscard]] constexpr bool at_end() const noexcept { return peek().kind == tok::end; }
+    // The source text from the start of token a to the end of token b.
+    [[nodiscard]] constexpr std::string_view span(std::size_t a, std::size_t b) const noexcept {
+        const std::string_view x = toks_[a].text;
+        const std::string_view y = toks_[b].text;
+        return {x.data(), static_cast<std::size_t>(y.data() + y.size() - x.data())};
+    }
     [[nodiscard]] static constexpr bool is_symbol(const token& t, char c) noexcept {
         return t.kind == tok::symbol && t.text.size() == 1 && t.text[0] == c;
     }
@@ -585,63 +617,104 @@ private:
     }
 
     // optionName: ident ('.' ident)* | '(' ['.'] ident ('.' ident)* ')' ('.' ident)*
-    // `name` gets the plain name, or an empty view for a custom or dotted option name.
-    [[nodiscard]] constexpr bool parse_option_name(std::string_view& name, location& loc) {
+    // `name` views the whole name as written; `custom` is set for a parenthesized name.
+    [[nodiscard]] constexpr bool parse_option_name(std::string_view& name, location& loc, bool& custom) {
+        const std::size_t first = i_;
         loc = peek().loc;
-        name = {};
+        custom = false;
         if (is_symbol(peek(), '(')) {
+            custom = true;
             ++i_;
             std::string ignored;
             if (!parse_type_name(ignored)) return false;
             if (!expect_symbol(')')) return false;
         } else {
-            if (!expect_ident(name)) return false;
+            std::string_view part;
+            if (!expect_ident(part)) return false;
         }
         while (is_symbol(peek(), '.')) {
             ++i_;
             std::string_view part;
             if (!expect_ident(part)) return false;
-            name = {};
         }
+        name = span(first, i_ - 1);
         return true;
     }
 
-    // `option name = constant;` at file, message, enum, service or rpc level. Options that
-    // change the wire format are refused; the rest carry no wire meaning and are skipped.
+    // Options from descriptor.proto, per level. Options that change the wire format
+    // (message_set_wire_format, map_entry, default) are left out and so refused. A custom option
+    // needs an import, which is not supported, so it is refused as protoc would refuse it.
+    [[nodiscard]] static constexpr bool known_option(level lv, std::string_view name) noexcept {
+        constexpr std::string_view file_options[] = {
+            "java_package", "java_outer_classname", "java_multiple_files", "java_generate_equals_and_hash",
+            "java_string_check_utf8", "optimize_for", "go_package", "cc_generic_services", "java_generic_services",
+            "py_generic_services", "deprecated", "cc_enable_arenas", "objc_class_prefix", "csharp_namespace",
+            "swift_prefix", "php_class_prefix", "php_namespace", "php_metadata_namespace", "ruby_package"};
+        constexpr std::string_view message_options[] = {"no_standard_descriptor_accessor", "deprecated",
+                                                        "deprecated_legacy_json_field_conflicts"};
+        constexpr std::string_view field_options[] = {"ctype", "packed", "jstype", "lazy", "unverified_lazy",
+                                                      "deprecated", "weak", "debug_redact", "retention", "targets",
+                                                      "json_name"};
+        constexpr std::string_view enum_options[] = {"allow_alias", "deprecated",
+                                                     "deprecated_legacy_json_field_conflicts"};
+        constexpr std::string_view enum_value_options[] = {"deprecated", "debug_redact"};
+        constexpr std::string_view service_options[] = {"deprecated"};
+        constexpr std::string_view rpc_options[] = {"deprecated", "idempotency_level"};
+        const auto in = [&](const auto& list) {
+            for (const std::string_view o : list)
+                if (o == name) return true;
+            return false;
+        };
+        switch (lv) {
+            case level::file: return in(file_options);
+            case level::message: return in(message_options);
+            case level::field: return in(field_options);
+            case level::enumeration: return in(enum_options);
+            case level::enum_value: return in(enum_value_options);
+            case level::service: return in(service_options);
+            case level::rpc: return in(rpc_options);
+        }
+        return false;
+    }
+
+    [[nodiscard]] constexpr bool check_option_name(level lv, std::string_view name, location loc, bool custom) {
+        if (name.starts_with("features")) return fail_at(errc::unsupported_editions, loc, name);
+        if (custom || !known_option(lv, name)) return fail_at(errc::unsupported_option, loc, name);
+        return true;
+    }
+
+    // `option name = constant;` at file, message, enum, service or rpc level.
     [[nodiscard]] constexpr bool parse_option(level lv, bool* allow_alias = nullptr) {
         ++i_;  // 'option'
-        const token& name_tok = peek();
         std::string_view name;
         location loc{};
-        if (!parse_option_name(name, loc)) return false;
-        if (name.starts_with("features")) return fail_at(errc::unsupported_editions, loc, name_tok.text);
-        if (lv == level::message && (name == "message_set_wire_format" || name == "map_entry"))
-            return fail_at(errc::unsupported_option, loc, name_tok.text);
+        bool custom = false;
+        if (!parse_option_name(name, loc, custom)) return false;
+        if (!check_option_name(lv, name, loc, custom)) return false;
         if (!expect_symbol('=')) return false;
         const token& value = peek();
         if (lv == level::enumeration && name == "allow_alias") {
-            if (!is_word(value, "true") && !is_word(value, "false"))
-                return fail(errc::unexpected_token, value);
+            if (!is_word(value, "true") && !is_word(value, "false")) return fail(errc::unexpected_token, value);
             if (allow_alias != nullptr) *allow_alias = is_word(value, "true");
         }
         if (!skip_constant()) return false;
         return expect_symbol(';');
     }
 
-    // '[' option (',' option)* ']' on a field or enum value. Only `packed` changes the wire
-    // format; `default` is proto2 only.
-    [[nodiscard]] constexpr bool parse_field_options(field& f) {
+    // '[' option (',' option)* ']' on a field or an enum value. Only `packed` changes the wire
+    // format.
+    [[nodiscard]] constexpr bool parse_field_options(field& f, level lv) {
         ++i_;  // '['
         for (;;) {
-            const token& name_tok = peek();
             std::string_view name;
             location loc{};
-            if (!parse_option_name(name, loc)) return false;
-            if (name == "default") return fail_at(errc::unsupported_option, loc, name_tok.text);
-            if (name.starts_with("features")) return fail_at(errc::unsupported_editions, loc, name_tok.text);
+            bool custom = false;
+            if (!parse_option_name(name, loc, custom)) return false;
+            if (!check_option_name(lv, name, loc, custom)) return false;
             if (!expect_symbol('=')) return false;
             const token& value = peek();
             if (name == "packed") {
+                if (f.packed_option != -1) return fail_at(errc::unsupported_option, loc, name);
                 if (is_word(value, "true")) {
                     f.packed_option = 1;
                 } else if (is_word(value, "false")) {
@@ -669,7 +742,7 @@ private:
         const token& t = peek();
         std::uint64_t u = 0;
         if (!expect_integer(u)) return false;
-        if (u > static_cast<std::uint64_t>(max_value) + (negative ? 1u : 0u))
+        if (u > static_cast<std::uint64_t>(max_value) + (negative ? 1u : 0u) || (!is_enum && u == 0))
             return fail_at(is_enum ? errc::enum_value_out_of_range : errc::field_number_out_of_range, t.loc,
                            t.text);
         v = negative ? -static_cast<std::int64_t>(u) : static_cast<std::int64_t>(u);
@@ -678,13 +751,13 @@ private:
 
     // reserved 1, 2, 9 to 11, 40 to max;   or   reserved "a", "b";
     [[nodiscard]] constexpr bool parse_reserved(std::vector<reserved_range>& ranges,
-                                                std::vector<std::string_view>& names, bool is_enum) {
+                                                std::vector<reserved_name>& names, bool is_enum) {
         ++i_;  // 'reserved'
         if (peek().kind == tok::string) {
             for (;;) {
                 const token& s = peek();
                 if (s.kind != tok::string) return fail(errc::expected_string, s);
-                names.push_back(s.text);
+                names.push_back({s.text, s.loc});
                 ++i_;
                 if (!is_symbol(peek(), ',')) break;
                 ++i_;
@@ -692,8 +765,9 @@ private:
             return expect_symbol(';');
         }
         for (;;) {
-            const token& first = peek();
+            const std::size_t first = i_;
             reserved_range r{};
+            r.loc = peek().loc;
             if (!read_reserved_bound(r.lo, is_enum)) return false;
             r.hi = r.lo;
             if (is_word(peek(), "to")) {
@@ -705,7 +779,8 @@ private:
                     return false;
                 }
             }
-            if (r.lo > r.hi) return fail_at(errc::bad_reserved_range, first.loc, first.text);
+            r.text = span(first, i_ - 1);
+            if (r.lo > r.hi) return fail_at(errc::bad_reserved_range, r.loc, r.text);
             ranges.push_back(r);
             if (!is_symbol(peek(), ',')) break;
             ++i_;
@@ -718,6 +793,8 @@ private:
         f.repeated = repeated;
         const token& type_tok = peek();
         if (is_word(type_tok, "group")) return fail(errc::unsupported_group, type_tok);
+        f.type_loc = type_tok.loc;
+        const std::size_t type_first = i_;
         if (type_tok.kind == tok::ident && find_scalar(type_tok.text, f.type)) {
             f.kind = field_kind::scalar;
             ++i_;
@@ -725,17 +802,20 @@ private:
             f.kind = field_kind::message;  // provisional; resolution may make it an enum
             if (!parse_type_name(f.type_name)) return false;
         }
+        f.type_text = span(type_first, i_ - 1);
         const token& name_tok = peek();
         if (!expect_ident(f.name)) return false;
         f.loc = name_tok.loc;
         if (!expect_symbol('=')) return false;
         const token& num_tok = peek();
+        f.number_loc = num_tok.loc;
+        f.number_text = num_tok.text;
         std::uint64_t number = 0;
         if (!expect_integer(number)) return false;
         if (number == 0 || number > max_field_number)
             return fail_at(errc::field_number_out_of_range, num_tok.loc, num_tok.text);
         f.number = static_cast<std::uint32_t>(number);
-        if (is_symbol(peek(), '[') && !parse_field_options(f)) return false;
+        if (is_symbol(peek(), '[') && !parse_field_options(f, level::field)) return false;
         if (!expect_symbol(';')) return false;
         out_.messages[msg].fields.push_back(std::move(f));
         return true;
@@ -814,8 +894,7 @@ private:
         v.number = negative ? static_cast<std::int32_t>(-static_cast<std::int64_t>(u)) : static_cast<std::int32_t>(u);
         if (is_symbol(peek(), '[')) {
             field ignored{};
-            if (!parse_field_options(ignored)) return false;
-            if (ignored.packed_option != -1) return fail_at(errc::unsupported_option, v.loc, v.name);
+            if (!parse_field_options(ignored, level::enum_value)) return false;
         }
         if (!expect_symbol(';')) return false;
         e.values.push_back(v);
@@ -931,12 +1010,33 @@ private:
 // ---------------------------------------------------------------------------------------------
 // Semantic checks
 
+enum class symbol : std::uint8_t { message, enumeration, service, package };
+
 struct name_entry {
-    std::string_view full;                  // views a full_name string owned by the file
-    field_kind kind = field_kind::message;  // enumeration or message; scalar marks a service
+    std::string_view full;  // views a full_name string or the package, both owned by the file
+    symbol kind = symbol::message;
     std::uint32_t index = npos;
+};
+
+[[nodiscard]] constexpr bool is_type(symbol k) noexcept { return k == symbol::message || k == symbol::enumeration; }
+
+// A name inside one scope (a message, the file, or a service), for collision checks.
+struct scoped_name {
+    std::uint32_t scope = 0;
+    std::string_view name;  // views the source
     location loc{};
 };
+
+[[nodiscard]] constexpr bool before(location a, location b) noexcept {
+    return a.line != b.line ? a.line < b.line : a.column < b.column;
+}
+
+[[nodiscard]] constexpr char lower(char c) noexcept {
+    return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+}
+[[nodiscard]] constexpr char upper(char c) noexcept {
+    return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+}
 
 [[nodiscard]] constexpr bool in_ranges(const std::vector<reserved_range>& rs, std::int64_t v) noexcept {
     for (const auto& r : rs)
@@ -944,10 +1044,57 @@ struct name_entry {
     return false;
 }
 
-[[nodiscard]] constexpr bool contains(const std::vector<std::string_view>& names, std::string_view n) noexcept {
+[[nodiscard]] constexpr bool reserved(const std::vector<reserved_name>& names, std::string_view n) noexcept {
     for (const auto& x : names)
-        if (x == n) return true;
+        if (x.name == n) return true;
     return false;
+}
+
+// protoc's default JSON name: each underscore is dropped and the next character capitalized.
+[[nodiscard]] constexpr std::string json_name(std::string_view n) {
+    std::string out;
+    bool up = false;
+    for (const char c : n) {
+        if (c == '_') {
+            up = true;
+            continue;
+        }
+        out.push_back(up ? upper(c) : c);
+        up = false;
+    }
+    return out;
+}
+
+// protoc's proto3 enum check: remove the enum name as a prefix (ignoring case and underscores)
+// when something is left, then convert to PascalCase.
+[[nodiscard]] constexpr std::string enum_value_key(std::string_view enum_name, std::string_view value) {
+    std::size_t i = 0;
+    std::size_t j = 0;
+    bool strip = true;
+    for (; i < value.size() && j < enum_name.size(); ++i) {
+        if (value[i] == '_') continue;
+        while (j < enum_name.size() && enum_name[j] == '_') ++j;
+        if (j == enum_name.size()) break;
+        if (lower(value[i]) != lower(enum_name[j++])) {
+            strip = false;
+            break;
+        }
+    }
+    while (j < enum_name.size() && enum_name[j] == '_') ++j;
+    if (j < enum_name.size()) strip = false;
+    while (strip && i < value.size() && value[i] == '_') ++i;
+    if (!strip || i == value.size()) i = 0;
+    std::string out;
+    bool up = true;
+    for (; i < value.size(); ++i) {
+        if (value[i] == '_') {
+            up = true;
+            continue;
+        }
+        out.push_back(up ? upper(value[i]) : lower(value[i]));
+        up = false;
+    }
+    return out;
 }
 
 class checker {
@@ -955,9 +1102,10 @@ public:
     constexpr explicit checker(file& f) : f_(f) {}
 
     [[nodiscard]] constexpr bool run() {
+        if (!check_messages() || !check_enums() || !check_scopes()) return false;
         qualify();
-        return check_definitions() && check_messages() && check_enums() && resolve() && check_packed() &&
-               order_messages();
+        build_names();
+        return resolve() && check_packed() && order_messages();
     }
 
     [[nodiscard]] constexpr const error& failure() const noexcept { return err_; }
@@ -965,43 +1113,39 @@ public:
 private:
     file& f_;
     error err_{};
-    std::vector<name_entry> names_;  // sorted by full name
+    std::vector<name_entry> names_;  // messages, enums, services and package prefixes, by full name
 
     constexpr bool fail(errc code, location loc, std::string_view token) {
         err_ = error{code, loc, token};
         return false;
     }
 
-    constexpr void qualify() {
-        if (f_.package.empty()) return;
-        const std::string prefix = f_.package + ".";
-        for (auto& m : f_.messages) m.full_name.insert(0, prefix);
-        for (auto& e : f_.enums) e.full_name.insert(0, prefix);
-        for (auto& s : f_.services) s.full_name.insert(0, prefix);
+    [[nodiscard]] constexpr bool check_reserved(const std::vector<reserved_range>& ranges,
+                                                const std::vector<reserved_name>& names) {
+        for (std::size_t b = 1; b < ranges.size(); ++b)
+            for (std::size_t a = 0; a < b; ++a)
+                if (ranges[a].lo <= ranges[b].hi && ranges[b].lo <= ranges[a].hi)
+                    return fail(errc::reserved_overlap, ranges[b].loc, ranges[b].text);
+        for (std::size_t b = 1; b < names.size(); ++b)
+            for (std::size_t a = 0; a < b; ++a)
+                if (names[a].name == names[b].name)
+                    return fail(errc::duplicate_reserved_name, names[b].loc, names[b].name);
+        return true;
     }
 
-    [[nodiscard]] constexpr bool check_definitions() {
-        names_.reserve(f_.messages.size() + f_.enums.size() + f_.services.size());
-        for (std::size_t i = 0; i < f_.messages.size(); ++i)
-            names_.push_back(
-                {f_.messages[i].full_name, field_kind::message, static_cast<std::uint32_t>(i), f_.messages[i].loc});
-        for (std::size_t i = 0; i < f_.enums.size(); ++i)
-            names_.push_back(
-                {f_.enums[i].full_name, field_kind::enumeration, static_cast<std::uint32_t>(i), f_.enums[i].loc});
-        for (std::size_t i = 0; i < f_.services.size(); ++i)
-            names_.push_back(
-                {f_.services[i].full_name, field_kind::scalar, static_cast<std::uint32_t>(i), f_.services[i].loc});
-        std::sort(names_.begin(), names_.end(), [](const name_entry& a, const name_entry& b) {
-            if (a.full != b.full) return a.full < b.full;
-            if (a.loc.line != b.loc.line) return a.loc.line < b.loc.line;
-            return a.loc.column < b.loc.column;
-        });
-        for (std::size_t i = 1; i < names_.size(); ++i) {
-            if (names_[i].full == names_[i - 1].full) {
-                const std::string_view full = names_[i].full;
-                const auto dot = full.rfind('.');
-                return fail(errc::duplicate_definition, names_[i].loc,
-                            dot == std::string_view::npos ? full : full.substr(dot + 1));
+    [[nodiscard]] constexpr bool check_json_names(const message& m) {
+        bool any_underscore = false;
+        for (const field& fd : m.fields)
+            for (const char c : fd.name) any_underscore = any_underscore || c == '_';
+        if (!any_underscore) return true;  // then every JSON name is the field name, already unique
+        std::vector<std::pair<std::string, std::uint32_t>> json;
+        json.reserve(m.fields.size());
+        for (std::uint32_t k = 0; k < m.fields.size(); ++k) json.emplace_back(json_name(m.fields[k].name), k);
+        std::sort(json.begin(), json.end());
+        for (std::size_t k = 1; k < json.size(); ++k) {
+            if (json[k].first == json[k - 1].first) {
+                const field& fd = m.fields[std::max(json[k].second, json[k - 1].second)];
+                return fail(errc::json_name_conflict, fd.loc, fd.name);
             }
         }
         return true;
@@ -1015,9 +1159,10 @@ private:
         for (std::uint32_t k = 0; k < m.fields.size(); ++k) {
             const field& fd = m.fields[k];
             if (fd.number >= first_implementation_number && fd.number <= last_implementation_number)
-                return fail(errc::field_number_in_implementation_range, fd.loc, fd.name);
-            if (in_ranges(m.reserved_ranges, fd.number)) return fail(errc::field_number_reserved, fd.loc, fd.name);
-            if (contains(m.reserved_names, fd.name)) return fail(errc::field_name_reserved, fd.loc, fd.name);
+                return fail(errc::field_number_in_implementation_range, fd.number_loc, fd.number_text);
+            if (in_ranges(m.reserved_ranges, fd.number))
+                return fail(errc::field_number_reserved, fd.number_loc, fd.number_text);
+            if (reserved(m.reserved_names, fd.name)) return fail(errc::field_name_reserved, fd.loc, fd.name);
             numbers.emplace_back(fd.number, k);
             names.emplace_back(fd.name, k);
         }
@@ -1025,7 +1170,7 @@ private:
         for (std::size_t k = 1; k < numbers.size(); ++k) {
             if (numbers[k].first == numbers[k - 1].first) {
                 const field& fd = m.fields[std::max(numbers[k].second, numbers[k - 1].second)];
-                return fail(errc::duplicate_field_number, fd.loc, fd.name);
+                return fail(errc::duplicate_field_number, fd.number_loc, fd.number_text);
             }
         }
         std::sort(names.begin(), names.end());
@@ -1035,7 +1180,7 @@ private:
                 return fail(errc::duplicate_field_name, fd.loc, fd.name);
             }
         }
-        return true;
+        return check_reserved(m.reserved_ranges, m.reserved_names) && check_json_names(m);
     }
 
     [[nodiscard]] constexpr bool check_messages() {
@@ -1046,23 +1191,106 @@ private:
         return true;
     }
 
-    [[nodiscard]] constexpr bool check_enums() {
-        for (const auto& e : f_.enums) {
-            if (e.values.empty()) return fail(errc::empty_enum, e.loc, e.name);
-            if (e.values.front().number != 0)
-                return fail(errc::enum_first_value_not_zero, e.values.front().loc, e.values.front().name);
-            for (std::size_t a = 0; a < e.values.size(); ++a) {
-                const enum_value& v = e.values[a];
-                if (in_ranges(e.reserved_ranges, v.number)) return fail(errc::field_number_reserved, v.loc, v.name);
-                if (contains(e.reserved_names, v.name)) return fail(errc::field_name_reserved, v.loc, v.name);
-                for (std::size_t b = 0; b < a; ++b) {
-                    if (e.values[b].name == v.name) return fail(errc::duplicate_enum_value_name, v.loc, v.name);
-                    if (e.values[b].number == v.number && !e.allow_alias)
-                        return fail(errc::enum_value_alias, v.loc, v.name);
+    [[nodiscard]] constexpr bool check_enum(const enumeration& e) {
+        if (e.values.empty()) return fail(errc::empty_enum, e.loc, e.name);
+        if (e.values.front().number != 0)
+            return fail(errc::enum_first_value_not_zero, e.values.front().loc, e.values.front().name);
+        bool aliased = false;
+        for (std::size_t a = 0; a < e.values.size(); ++a) {
+            const enum_value& v = e.values[a];
+            if (in_ranges(e.reserved_ranges, v.number)) return fail(errc::field_number_reserved, v.loc, v.name);
+            if (reserved(e.reserved_names, v.name)) return fail(errc::field_name_reserved, v.loc, v.name);
+            for (std::size_t b = 0; b < a; ++b) {
+                if (e.values[b].name == v.name) return fail(errc::duplicate_enum_value_name, v.loc, v.name);
+                if (e.values[b].number == v.number) {
+                    if (!e.allow_alias) return fail(errc::enum_value_alias, v.loc, v.name);
+                    aliased = true;
                 }
             }
         }
+        if (e.allow_alias && !aliased) return fail(errc::allow_alias_unused, e.loc, e.name);
+        if (!check_reserved(e.reserved_ranges, e.reserved_names)) return false;
+        // Values that collide once the prefix and case are ignored, unless they are aliases.
+        std::vector<std::pair<std::string, std::uint32_t>> keys;
+        keys.reserve(e.values.size());
+        for (std::uint32_t k = 0; k < e.values.size(); ++k)
+            keys.emplace_back(enum_value_key(e.name, e.values[k].name), k);
+        std::sort(keys.begin(), keys.end());
+        for (std::size_t k = 1; k < keys.size(); ++k) {
+            if (keys[k].first != keys[k - 1].first) continue;
+            const enum_value& x = e.values[keys[k - 1].second];
+            const enum_value& y = e.values[keys[k].second];
+            if (x.number == y.number) continue;
+            const enum_value& later = keys[k].second > keys[k - 1].second ? y : x;
+            return fail(errc::enum_value_name_conflict, later.loc, later.name);
+        }
         return true;
+    }
+
+    [[nodiscard]] constexpr bool check_enums() {
+        for (const auto& e : f_.enums)
+            if (!check_enum(e)) return false;
+        return true;
+    }
+
+    // C++-like scoping, as protoc does it: in one scope, nested messages, enums, enum values (in
+    // the scope that holds their enum), services and fields share one namespace; rpc names
+    // share one per service. Fields enter only scopes that hold another kind of name, since
+    // duplicate field names were checked already.
+    [[nodiscard]] constexpr bool check_scopes() {
+        const auto file_scope = static_cast<std::uint32_t>(f_.messages.size());
+        const auto scope_of = [&](std::uint32_t parent) { return parent == npos ? file_scope : parent; };
+        std::vector<scoped_name> names;
+        std::vector<std::uint8_t> crowded(f_.messages.size(), 0);
+        for (const auto& m : f_.messages) {
+            names.push_back({scope_of(m.parent), m.name, m.loc});
+            if (m.parent != npos) crowded[m.parent] = 1;
+        }
+        for (const auto& e : f_.enums) {
+            names.push_back({scope_of(e.parent), e.name, e.loc});
+            for (const auto& v : e.values) names.push_back({scope_of(e.parent), v.name, v.loc});
+            if (e.parent != npos) crowded[e.parent] = 1;
+        }
+        for (std::uint32_t i = 0; i < f_.messages.size(); ++i)
+            if (crowded[i] != 0)
+                for (const auto& fd : f_.messages[i].fields) names.push_back({i, fd.name, fd.loc});
+        for (std::uint32_t s = 0; s < f_.services.size(); ++s) {
+            names.push_back({file_scope, f_.services[s].name, f_.services[s].loc});
+            for (const auto& r : f_.services[s].rpcs) names.push_back({file_scope + 1 + s, r.name, r.loc});
+        }
+        std::sort(names.begin(), names.end(), [](const scoped_name& a, const scoped_name& b) {
+            if (a.scope != b.scope) return a.scope < b.scope;
+            if (a.name != b.name) return a.name < b.name;
+            return before(a.loc, b.loc);
+        });
+        for (std::size_t k = 1; k < names.size(); ++k)
+            if (names[k].scope == names[k - 1].scope && names[k].name == names[k - 1].name)
+                return fail(errc::duplicate_definition, names[k].loc, names[k].name);
+        return true;
+    }
+
+    constexpr void qualify() {
+        if (f_.package.empty()) return;
+        const std::string prefix = f_.package + ".";
+        for (auto& m : f_.messages) m.full_name.insert(0, prefix);
+        for (auto& e : f_.enums) e.full_name.insert(0, prefix);
+        for (auto& s : f_.services) s.full_name.insert(0, prefix);
+    }
+
+    constexpr void build_names() {
+        names_.reserve(f_.messages.size() + f_.enums.size() + f_.services.size() + 4);
+        for (std::size_t i = 0; i < f_.messages.size(); ++i)
+            names_.push_back({f_.messages[i].full_name, symbol::message, static_cast<std::uint32_t>(i)});
+        for (std::size_t i = 0; i < f_.enums.size(); ++i)
+            names_.push_back({f_.enums[i].full_name, symbol::enumeration, static_cast<std::uint32_t>(i)});
+        for (std::size_t i = 0; i < f_.services.size(); ++i)
+            names_.push_back({f_.services[i].full_name, symbol::service, static_cast<std::uint32_t>(i)});
+        const std::string_view pkg = f_.package;
+        for (std::size_t k = 0; k < pkg.size(); ++k)
+            if (pkg[k] == '.') names_.push_back({pkg.substr(0, k), symbol::package, npos});
+        if (!pkg.empty()) names_.push_back({pkg, symbol::package, npos});
+        std::sort(names_.begin(), names_.end(),
+                  [](const name_entry& a, const name_entry& b) { return a.full < b.full; });
     }
 
     [[nodiscard]] constexpr const name_entry* lookup(std::string_view full) const noexcept {
@@ -1072,13 +1300,23 @@ private:
         return &*it;
     }
 
-    // Protobuf scoping: a relative name is searched from the innermost scope outward; a name
-    // with a leading dot is fully qualified. Services are never a type.
+    // protoc's rule. A name with a leading dot is fully qualified. Otherwise its first component
+    // is searched from the innermost scope outward, skipping symbols of the wrong kind (a
+    // non-type for a simple name). For a dotted name the first symbol found decides: the rest
+    // must exist inside it.
     [[nodiscard]] constexpr const name_entry* resolve_name(std::string_view scope, std::string_view name) const {
-        if (name.starts_with('.')) {
+        if (!name.empty() && name.front() == '.') {
             const name_entry* e = lookup(name.substr(1));
-            return e != nullptr && e->kind != field_kind::scalar ? e : nullptr;
+            return e != nullptr && is_type(e->kind) ? e : nullptr;
         }
+        std::size_t dot = name.size();
+        for (std::size_t k = 0; k < name.size(); ++k) {
+            if (name[k] == '.') {
+                dot = k;
+                break;
+            }
+        }
+        const std::string_view first = name.substr(0, dot);
         std::string candidate;
         for (;;) {
             candidate.clear();
@@ -1086,11 +1324,19 @@ private:
                 candidate.append(scope);
                 candidate.push_back('.');
             }
-            candidate.append(name);
-            if (const name_entry* e = lookup(candidate); e != nullptr && e->kind != field_kind::scalar) return e;
+            candidate.append(first);
+            if (const name_entry* e = lookup(candidate); e != nullptr) {
+                if (dot == name.size()) {
+                    if (is_type(e->kind)) return e;
+                } else {
+                    candidate.append(name.substr(dot));
+                    const name_entry* inner = lookup(candidate);
+                    return inner != nullptr && is_type(inner->kind) ? inner : nullptr;
+                }
+            }
             if (scope.empty()) return nullptr;
-            const auto dot = scope.rfind('.');
-            scope = dot == std::string_view::npos ? std::string_view{} : scope.substr(0, dot);
+            const auto cut = scope.rfind('.');
+            scope = cut == std::string_view::npos ? std::string_view{} : scope.substr(0, cut);
         }
     }
 
@@ -1100,8 +1346,8 @@ private:
             for (auto& fd : m.fields) {
                 if (fd.type_name.empty()) continue;
                 const name_entry* e = resolve_name(scope, fd.type_name);
-                if (e == nullptr) return fail(errc::unknown_type, fd.loc, fd.name);
-                fd.kind = e->kind;
+                if (e == nullptr) return fail(errc::unknown_type, fd.type_loc, fd.type_text);
+                fd.kind = e->kind == symbol::message ? field_kind::message : field_kind::enumeration;
                 fd.type_index = e->index;
             }
         }
@@ -1109,10 +1355,10 @@ private:
             for (auto& r : s.rpcs) {
                 const name_entry* q = resolve_name(f_.package, r.request_name);
                 if (q == nullptr) return fail(errc::unknown_type, r.request_loc, r.name);
-                if (q->kind != field_kind::message) return fail(errc::not_a_message_type, r.request_loc, r.name);
+                if (q->kind != symbol::message) return fail(errc::not_a_message_type, r.request_loc, r.name);
                 const name_entry* p = resolve_name(f_.package, r.response_name);
                 if (p == nullptr) return fail(errc::unknown_type, r.response_loc, r.name);
-                if (p->kind != field_kind::message) return fail(errc::not_a_message_type, r.response_loc, r.name);
+                if (p->kind != symbol::message) return fail(errc::not_a_message_type, r.response_loc, r.name);
                 r.request = q->index;
                 r.response = p->index;
             }
@@ -1120,12 +1366,13 @@ private:
         return true;
     }
 
+    // An explicit [packed] is only valid on a repeated numeric, bool or enum field.
     [[nodiscard]] constexpr bool check_packed() {
         for (auto& m : f_.messages) {
             for (auto& fd : m.fields) {
                 const bool packable =
                     fd.kind == field_kind::enumeration || (fd.kind == field_kind::scalar && is_packable(fd.type));
-                if (fd.packed_option == 1 && !(fd.repeated && packable))
+                if (fd.packed_option != -1 && !(fd.repeated && packable))
                     return fail(errc::packed_on_non_packable, fd.loc, fd.name);
                 fd.packed = fd.repeated && packable && fd.packed_option != 0;
             }
@@ -1159,7 +1406,7 @@ private:
                 }
                 const field& fd = m.fields[top.next_field++];
                 if (fd.kind != field_kind::message) continue;
-                if (state[fd.type_index] == 1) return fail(errc::recursive_message, fd.loc, fd.name);
+                if (state[fd.type_index] == 1) return fail(errc::recursive_message, fd.type_loc, fd.type_text);
                 if (state[fd.type_index] == 0) {
                     state[fd.type_index] = 1;
                     stack.push_back({fd.type_index, 0});

@@ -74,9 +74,12 @@ enum class read_error : std::uint8_t {
     truncated,
     malformed_varint,
     length_overflow,
-    group_not_supported,
+    malformed_group,  // an end-group without its start, or with another field number
+    too_deep,         // groups nested deeper than max_group_depth
     bad_wire_type,
 };
+
+inline constexpr int max_group_depth = 64;
 
 // A bounds-checked cursor. Every read checks the remaining length first.
 struct reader {
@@ -138,8 +141,10 @@ struct reader {
         p += n;
         return true;
     }
-    // Skips one field value of the given wire type. Groups are refused (proto3 has none).
-    [[nodiscard]] constexpr bool skip(wire_type t, read_error& err) noexcept {
+    // Skips one field value of the given wire type and field number. A group (deprecated, but
+    // valid input for proto3 parsers, which skip it as an unknown field) is skipped up to its
+    // matching end-group tag, nested at most max_group_depth deep.
+    [[nodiscard]] constexpr bool skip(wire_type t, std::uint32_t number, read_error& err, int depth = 0) noexcept {
         switch (t) {
             case wire_type::varint: {
                 std::uint64_t ignored = 0;
@@ -163,9 +168,30 @@ struct reader {
                 }
                 p += 4;
                 return true;
-            case wire_type::sgroup:
+            case wire_type::sgroup: {
+                if (depth >= max_group_depth) {
+                    err = read_error::too_deep;
+                    return false;
+                }
+                for (;;) {
+                    std::uint64_t tag = 0;
+                    if (!varint(tag, err)) return false;
+                    if (tag > 0xFFFF'FFFFu || (tag >> 3) == 0) {
+                        err = read_error::malformed_group;
+                        return false;
+                    }
+                    const auto n = static_cast<std::uint32_t>(tag >> 3);
+                    const auto w = static_cast<wire_type>(tag & 7u);
+                    if (w == wire_type::egroup) {
+                        if (n == number) return true;
+                        err = read_error::malformed_group;
+                        return false;
+                    }
+                    if (!skip(w, n, err, depth + 1)) return false;
+                }
+            }
             case wire_type::egroup:
-                err = read_error::group_not_supported;
+                err = read_error::malformed_group;
                 return false;
         }
         err = read_error::bad_wire_type;

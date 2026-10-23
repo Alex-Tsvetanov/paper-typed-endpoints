@@ -5,7 +5,9 @@
 // by reflection to prove that synthesis ran, and the encoder's output is compared byte for byte
 // with protoc's encoding of the same values (tests/golden/README.md).
 
+#include <bit>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <optional>
 #include <string>
@@ -46,7 +48,8 @@ static_assert(std::is_same_v<decltype(Everything::f_bool), bool>);
 static_assert(std::is_same_v<decltype(Everything::f_string), std::string>);
 static_assert(std::is_same_v<decltype(Everything::f_bytes), std::string>);
 static_assert(std::is_same_v<decltype(Everything::f_enum), std::int32_t>);
-static_assert(std::is_same_v<decltype(Everything::f_inner), std::optional<Inner>>);
+static_assert(std::is_same_v<decltype(Everything::f_inner), tep::box<Inner>>);
+static_assert(sizeof(tep::box<Inner>) == sizeof(void*), "an absent sub-message costs one pointer");
 static_assert(std::is_same_v<decltype(Everything::r_inner), std::vector<Inner>>);
 static_assert(std::is_same_v<decltype(Everything::r_sint64), std::vector<std::int64_t>>);
 static_assert(std::is_same_v<decltype(Everything::class_), std::int32_t>, "a keyword field gets a trailing underscore");
@@ -114,7 +117,12 @@ void test_matches_protoc() {
     TEP_CHECK(got == want);
     const auto back = tep::decode<Everything>(want);
     TEP_CHECK(back.has_value());
-    if (back) TEP_CHECK(*back == e);
+    if (back) {
+        TEP_CHECK(*back == e);
+        // == cannot see the sign of zero; the bits can.
+        TEP_CHECK(back->r_double.size() == 2 &&
+                  std::bit_cast<std::uint64_t>(back->r_double[1]) == std::bit_cast<std::uint64_t>(-0.0));
+    }
 }
 
 void test_defaults() {
@@ -157,10 +165,26 @@ void test_decode_errors() {
     TEP_CHECK(!bad_utf8 && bad_utf8.error() == tep::decode_error::invalid_utf8);
     const auto bytes_ok = tep::decode<Everything>(tep_test::bytes({0x52, 0x02, 0xC0, 0x80}));
     TEP_CHECK(bytes_ok && bytes_ok->f_bytes.size() == 2);  // bytes are not UTF-8 checked
-    const auto zero_tag = tep::decode<Everything>(tep_test::bytes({0x00}));
-    TEP_CHECK(!zero_tag && zero_tag.error() == tep::decode_error::bad_tag);
-    const auto group = tep::decode<Everything>(tep_test::bytes({0x0B}));
-    TEP_CHECK(!group && group.error() == tep::decode_error::group_not_supported);
+    const auto fails = [](std::initializer_list<int> in, tep::decode_error e) {
+        const auto d = tep::decode<Everything>(tep_test::bytes(in));
+        return !d.has_value() && d.error() == e;
+    };
+    TEP_CHECK(fails({0x00}, tep::decode_error::bad_tag));
+    TEP_CHECK(fails({0x80, 0x80, 0x80, 0x80, 0x10}, tep::decode_error::bad_tag));        // tag above 32 bits
+    TEP_CHECK(fails({0x88, 0x80, 0x80, 0x80, 0x80, 0x00}, tep::decode_error::bad_tag));  // a six-byte tag
+    TEP_CHECK(fails({0x0E}, tep::decode_error::bad_wire_type));                          // wire type 6
+    TEP_CHECK(fails({0xBF, 0x3E}, tep::decode_error::bad_wire_type));                    // unknown field, type 7
+    TEP_CHECK(fails({0x4A, 0xFF, 0xFF, 0xFF, 0xFF, 0x0F}, tep::decode_error::length_overflow));
+    TEP_CHECK(fails({0x8A, 0x01, 0x05, 0x08, 0x01}, tep::decode_error::truncated));  // nested message cut short
+    TEP_CHECK(fails({0x8A, 0x01, 0x04, 0x12, 0x02, 0xC0, 0x80}, tep::decode_error::invalid_utf8));  // nested string
+    TEP_CHECK(fails({0xC2, 0x01, 0x02, 0xC0, 0x80}, tep::decode_error::invalid_utf8));  // repeated string
+    // Groups are skipped like unknown fields, as libprotobuf does; a broken group is an error.
+    TEP_CHECK(fails({0x0B}, tep::decode_error::truncated));
+    TEP_CHECK(fails({0x0B, 0x14}, tep::decode_error::malformed_group));
+    const auto known_group = tep::decode<Everything>(tep_test::bytes({0x0B, 0x0C, 0x28, 0x05}));
+    TEP_CHECK(known_group && known_group->f_double == 0.0 && known_group->f_int32 == 5);
+    const auto unknown_group = tep::decode<Everything>(tep_test::bytes({0xBB, 0x3E, 0x08, 0x01, 0xBC, 0x3E, 0x28, 0x05}));
+    TEP_CHECK(unknown_group && unknown_group->f_int32 == 5);
     const auto packed_fixed = tep::decode<Everything>(tep_test::bytes({0xA2, 0x01, 0x03, 0x00, 0x00, 0x00}));
     TEP_CHECK(!packed_fixed && packed_fixed.error() == tep::decode_error::truncated);
     auto want = tep_test::read_file(golden("everything.bin"));

@@ -1,0 +1,31 @@
+{
+  "status": "DRAFT 2026-10-23, not frozen; needs Alex's decision 2 in STATE.md before any number is citable",
+  "layers": {
+    "portable": "include/tep/schema.hpp, wire.hpp, grpc.hpp, fixed_string.hpp",
+    "reflection": "include/tep/reflect.hpp"
+  },
+  "linux": {
+    "portable": {
+      "clang_asan_ubsan": "planned (clang 22.1.8 with libc++, preset linux-clang-asan)",
+      "clang_tsan": "planned once the transport has threads",
+      "clang_msan": "planned; needs an instrumented libc++, a laptop job",
+      "clang_tidy": "planned",
+      "cppcheck": "planned"
+    },
+    "reflection": {
+      "gcc_asan": "planned (GCC 16.2.1, preset linux-gcc-asan)",
+      "gcc_ubsan": "planned without null, nonnull-attribute and returns-nonnull-attribute: with any of them GCC 16.2.1 cannot constant-evaluate the layer (design/compiler-findings.md F2)",
+      "gcc_tsan": "planned once the transport has threads",
+      "msan": "gap: GCC has no MSan, and no clang can parse the reflection layer",
+      "clang_tidy": "gap: no clang can parse P2996 code",
+      "cppcheck": "unknown: not yet tried on P2996 code"
+    }
+  },
+  "windows": {
+    "portable": {
+      "msvc_asan": "planned (MSVC 19.51, preset msvc-asan); records made on the laptop"
+    },
+    "reflection": "open: MSVC has no P2996 (STATE.md, Alex decides 1)"
+  },
+  "third_party": "protoc, libprotobuf, nghttp2, grpc-go and the load generator are pinned arms or tools, not sanitized first-party code"
+}

@@ -4,6 +4,8 @@
 // Unary endpoints synthesized from a service definition, called in process with protoc-encoded
 // requests; the responses are compared with protoc's encoding.
 
+#include <new>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -34,6 +36,8 @@ struct greeter_impl {
     }
 
     tep::grpc::status SayNothing(const HelloRequest& q, HelloReply&) {
+        if (q.name == "throw") throw std::runtime_error("handler failure");
+        if (q.name == "oom") throw std::bad_alloc();
         return q.name.empty() ? tep::grpc::status::invalid_argument : tep::grpc::status::ok;
     }
 };
@@ -43,6 +47,7 @@ using greeter_endpoint = tep::endpoint<greeter_proto, "tep.demo.Greeter", greete
 static_assert(greeter_endpoint::method_count() == 2);
 static_assert(greeter_endpoint::path(0) == "/tep.demo.Greeter/SayHello");
 static_assert(greeter_endpoint::path(1) == "/tep.demo.Greeter/SayNothing");
+static_assert(greeter_endpoint::path(2).empty(), "out of range is an empty path");
 
 namespace {
 
@@ -83,10 +88,16 @@ void test_status_paths() {
     TEP_CHECK(ep.invoke("/tep.demo.Greeter/SayHello", tep_test::bytes({0x0A, 0x05, 't'}), response) ==
               tep::grpc::status::internal);
     TEP_CHECK(impl.calls == 0);
-    // Framing errors.
+    // Exceptions from a handler become a status and never leave invoke.
+    TEP_CHECK(ep.invoke("/tep.demo.Greeter/SayNothing", tep_test::bytes({0x0A, 0x05, 't', 'h', 'r', 'o', 'w'}),
+                        response) == tep::grpc::status::unknown);
+    TEP_CHECK(response.empty());
+    TEP_CHECK(ep.invoke("/tep.demo.Greeter/SayNothing", tep_test::bytes({0x0A, 0x03, 'o', 'o', 'm'}), response) ==
+              tep::grpc::status::resource_exhausted);
+    // Framing errors. A compressed message without a negotiated encoding is INTERNAL.
     auto compressed = framed(request);
     compressed[0] = std::byte{1};
-    TEP_CHECK(ep.invoke_framed("/tep.demo.Greeter/SayHello", compressed, response) == tep::grpc::status::unimplemented);
+    TEP_CHECK(ep.invoke_framed("/tep.demo.Greeter/SayHello", compressed, response) == tep::grpc::status::internal);
     TEP_CHECK(ep.invoke_framed("/tep.demo.Greeter/SayHello", tep_test::bytes({0, 0xFF, 0xFF, 0xFF, 0xFF}), response) ==
               tep::grpc::status::resource_exhausted);
     TEP_CHECK(ep.invoke_framed("/tep.demo.Greeter/SayHello", tep_test::bytes({0, 0, 0}), response) ==

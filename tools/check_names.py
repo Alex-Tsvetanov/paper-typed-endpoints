@@ -52,13 +52,15 @@ def scan(files: list[pathlib.Path], root: pathlib.Path, digests: dict[int, set[s
     for path in files:
         if path.suffix in SKIP_SUFFIXES or not path.is_file():
             continue
-        data = path.read_bytes()
-        if b"\0" in data:
-            continue
-        text = data.decode("utf-8", errors="replace")
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        found = False
         for number, line in enumerate(text.splitlines(), start=1):
             if line_hits(line, digests):
                 hits.append(f"{path.relative_to(root)}:{number}")
+                found = True
+        # A name split across lines (or by punctuation spanning lines) shows in the whole text.
+        if not found and line_hits(text, digests):
+            hits.append(f"{path.relative_to(root)} (across lines)")
     return hits
 
 
@@ -80,9 +82,12 @@ def self_test() -> int:
         )
         (root / "clean.txt").write_text("nothing here\n", encoding="utf-8")
         (root / "dirty.txt").write_text("line one\nuses Planted_Canary::thing\n", encoding="utf-8")
+        (root / "split.txt").write_text("planted\ncanary\n", encoding="utf-8")
+        (root / "nul.dat").write_bytes(b"\0\0PLANTEDCANARY\0")
         digests = load_digests(root / "digests.txt")
-        hits = scan([root / "clean.txt", root / "dirty.txt"], root, digests)
-    if hits == ["dirty.txt:2"]:
+        names = ["clean.txt", "dirty.txt", "split.txt", "nul.dat"]
+        hits = scan([root / n for n in names], root, digests)
+    if hits == ["dirty.txt:2", "split.txt (across lines)", "nul.dat:1"]:
         print("name guard self-test: the planted name was found")
         return 0
     print(f"name guard self-test FAILED: hits {hits}")

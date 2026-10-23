@@ -41,13 +41,15 @@ void test_frames() {
         TEP_CHECK(f[1] == std::byte{1} && f[2] == std::byte{2} && f[3] == std::byte{3} && f[4] == std::byte{4});
         TEP_CHECK(read_be32(f.data() + 1) == 0x01020304u);
     }
+    // Each check first requires an error, so a wrongly accepted frame cannot pass.
+    const auto fails = [](const auto& r, frame_error e) { return !r.has_value() && r.error() == e; };
     std::vector<std::byte> four(4);
-    TEP_CHECK(parse_unary(four).error() == frame_error::incomplete);
-    TEP_CHECK(parse_unary(frame(0, 10, 3)).error() == frame_error::incomplete);
-    TEP_CHECK(parse_unary(frame(0, 2, 3)).error() == frame_error::trailing_bytes);
-    TEP_CHECK(parse_unary(frame(0, 100, 100), 99).error() == frame_error::too_large);
-    TEP_CHECK(parse_unary(frame(0, 0xFFFF'FFFFu, 0)).error() == frame_error::too_large);
-    TEP_CHECK(parse_unary(frame(2, 1, 1)).error() == frame_error::bad_flag);
+    TEP_CHECK(fails(parse_unary(four), frame_error::incomplete));
+    TEP_CHECK(fails(parse_unary(frame(0, 10, 3)), frame_error::incomplete));
+    TEP_CHECK(fails(parse_unary(frame(0, 2, 3)), frame_error::trailing_bytes));
+    TEP_CHECK(fails(parse_unary(frame(0, 100, 100), 99), frame_error::too_large));
+    TEP_CHECK(fails(parse_unary(frame(0, 0xFFFF'FFFFu, 0)), frame_error::too_large));
+    TEP_CHECK(fails(parse_unary(frame(2, 1, 1)), frame_error::bad_flag));
 }
 
 void test_paths() {

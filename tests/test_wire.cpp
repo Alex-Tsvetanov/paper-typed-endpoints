@@ -90,11 +90,41 @@ void test_reader_errors() {
     {
         const auto in = tep_test::bytes({0x96, 0x01, 1, 2, 3, 4, 5, 6, 7, 8, 0x02, 'h', 'i', 9, 9, 9, 9});
         reader r(in);
-        TEP_CHECK(r.skip(wire_type::varint, err) && r.skip(wire_type::i64, err));
-        TEP_CHECK(r.skip(wire_type::len, err) && r.skip(wire_type::i32, err) && r.done());
+        TEP_CHECK(r.skip(wire_type::varint, 1, err) && r.skip(wire_type::i64, 1, err));
+        TEP_CHECK(r.skip(wire_type::len, 1, err) && r.skip(wire_type::i32, 1, err) && r.done());
         reader g(in);
-        TEP_CHECK(!g.skip(wire_type::sgroup, err) && err == read_error::group_not_supported);
-        TEP_CHECK(!g.skip(static_cast<wire_type>(7), err) && err == read_error::bad_wire_type);
+        TEP_CHECK(!g.skip(static_cast<wire_type>(6), 1, err) && err == read_error::bad_wire_type);
+        TEP_CHECK(!g.skip(static_cast<wire_type>(7), 1, err) && err == read_error::bad_wire_type);
+    }
+}
+
+// Groups are skipped up to the matching end-group tag (the start tag was read by the caller).
+void test_groups() {
+    read_error err{};
+    {
+        // Inside group 1: varint field 2, a nested group 3, then the end of group 1.
+        const auto in = tep_test::bytes({0x10, 0x05, 0x1B, 0x20, 0x01, 0x1C, 0x0C});
+        reader r(in);
+        TEP_CHECK(r.skip(wire_type::sgroup, 1, err) && r.done());
+    }
+    {
+        const auto in = tep_test::bytes({0x14});  // the end of group 2 inside group 1
+        reader r(in);
+        TEP_CHECK(!r.skip(wire_type::sgroup, 1, err) && err == read_error::malformed_group);
+    }
+    {
+        const auto in = tep_test::bytes({0x10, 0x05});  // never closed
+        reader r(in);
+        TEP_CHECK(!r.skip(wire_type::sgroup, 1, err) && err == read_error::truncated);
+    }
+    {
+        reader r(std::span<const std::byte>{});
+        TEP_CHECK(!r.skip(wire_type::egroup, 1, err) && err == read_error::malformed_group);
+    }
+    {
+        const std::vector<std::byte> in(static_cast<std::size_t>(max_group_depth) + 8, std::byte{0x0B});
+        reader r(in);
+        TEP_CHECK(!r.skip(wire_type::sgroup, 1, err) && err == read_error::too_deep);
     }
 }
 
@@ -133,6 +163,7 @@ int main() {
     test_varint_round_trip();
     test_fixed();
     test_reader_errors();
+    test_groups();
     test_utf8();
     test_protoc_golden();
     return tep_test::finish("test_wire");

@@ -37,11 +37,16 @@ if(TEP_HAVE_REFLECTION)
   function(tep_negative name library regex)
     add_executable(neg_${name} EXCLUDE_FROM_ALL negative/${name}.cpp)
     target_link_libraries(neg_${name} PRIVATE ${library})
-    add_test(NAME negative_${name} COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target neg_${name})
-    set_tests_properties(negative_${name} PROPERTIES PASS_REGULAR_EXPRESSION "${regex}" RESOURCE_LOCK build_tree)
+    add_test(NAME negative_${name}
+             COMMAND ${CMAKE_COMMAND} -DBUILD_DIR=${CMAKE_BINARY_DIR} -DTARGET=neg_${name} "-DREGEX=${regex}"
+                     -P ${CMAKE_CURRENT_SOURCE_DIR}/expect_build_failure.cmake)
+    set_tests_properties(negative_${name} PROPERTIES RESOURCE_LOCK build_tree)
   endfunction()
   # Regexes use '.' for literal punctuation: backslash escapes do not survive into CTestTestfile.
-  tep_negative(bad_schema tep_reflect "tep: schema error at line 4, column 9: duplicate field number ..b..")
+  # Each check needs a failed build and a matching diagnostic (expect_build_failure.cmake).
+  tep_negative(bad_schema tep_reflect "tep: schema error at line 4, column 13: duplicate field number ..1..")
+  tep_negative(duplicate_definition tep_reflect "tep: schema error at line 3, column 9: name is defined twice ..DuplicatedMessage..")
+  tep_negative(keyword_collision tep_reflect "tep: schema error at line 4, column 9: two fields have the same JSON name ..class..")
   tep_negative(streaming tep_reflect "tep: schema error at line 3, column 19: streaming rpcs are not supported")
   tep_negative(missing_handler tep_reflect "has no member function named 'Pong' for rpc p.S.Pong")
   tep_negative(wrong_signature tep_reflect "handler member function 'Ping' must be 'Response Ping.const Request&.'")

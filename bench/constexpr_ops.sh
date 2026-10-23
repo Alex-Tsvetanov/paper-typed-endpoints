@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Deterministic constant-evaluation cost (not timing): the smallest -fconstexpr-ops-limit under
+# which GCC accepts a stage of the reflection pipeline for a generated schema. Bisection.
+# Usage: constexpr_ops.sh <wide|many> <n> <parse|tables|define>   (run inside papers-dev)
+set -euo pipefail
+shape=$1 n=$2 stage=$3
+repo=$(cd "$(dirname "$0")/.." && pwd)
+work=$(mktemp -d)
+python3 "$repo/bench/gen_schema.py" schema --shape "$shape" --n "$n" > "$work/schema.proto"
+{
+  echo '#include <string_view>'
+  case $stage in
+    parse) echo '#include "tep/schema.hpp"' ;;
+    *) echo '#include "tep/reflect.hpp"' ;;
+  esac
+  echo 'struct schema { static constexpr char data[] = {'
+  echo '#embed "schema.proto"'
+  echo ", '\0'}; static constexpr std::string_view text{data, sizeof data - 1}; };"
+  case $stage in
+    parse) echo 'static_assert(tep::schema::parse(schema::text).has_value());' ;;
+    tables) echo 'static_assert(!tep::tables<schema>.fields.empty());' ;;
+    define) echo 'consteval { tep::define_messages<schema>(); }' ;;
+  esac
+} > "$work/tu.cpp"
+flags=(-std=c++26 -fsyntax-only -I "$repo/include")
+[ "$stage" != parse ] && flags+=(-freflection)
+ok() { g++ "${flags[@]}" "-fconstexpr-ops-limit=$1" "$work/tu.cpp" > /dev/null 2>&1; }
+hi=33554432
+if ! ok $hi; then echo "$shape $n $stage: above the default limit $hi"; rm -rf "$work"; exit 0; fi
+lo=0
+while [ $((hi - lo)) -gt $((hi / 200 + 1)) ]; do
+  mid=$(((lo + hi) / 2))
+  if ok $mid; then hi=$mid; else lo=$mid; fi
+done
+echo "$shape $n $stage: ops <= $hi (within 0.5%)"
+rm -rf "$work"
