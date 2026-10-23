@@ -39,6 +39,7 @@ cmake --preset linux-gcc-debug && cmake --build build/linux-gcc-debug && ctest -
 ```
 
 Presets: `linux-gcc-{debug,release,asan}`, `linux-clang-{debug,asan}` (portable layers only),
+`mingw-gcc-{debug,release}` (MinGW-w64 GCC 16 first on PATH; all layers on Windows),
 `msvc-{debug,release,asan}` (portable layers only; MSVC has no P2996).
 
 ## License

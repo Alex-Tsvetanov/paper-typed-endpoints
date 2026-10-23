@@ -1,6 +1,10 @@
 {
   "version": 6,
-  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 28,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "base",
@@ -12,13 +16,19 @@
       "name": "linux-gcc-debug",
       "inherits": "base",
       "displayName": "GCC 16, all layers including reflection",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++", "CMAKE_BUILD_TYPE": "Debug" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     },
     {
       "name": "linux-gcc-release",
       "inherits": "base",
       "displayName": "GCC 16, Release",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++", "CMAKE_BUILD_TYPE": "Release" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     },
     {
       "name": "linux-gcc-asan",
@@ -56,19 +66,47 @@
       "name": "msvc-debug",
       "inherits": "base",
       "displayName": "MSVC, portable layers only",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "Debug" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     },
     {
       "name": "msvc-release",
       "inherits": "base",
       "displayName": "MSVC Release, portable layers only",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "Release" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     },
     {
       "name": "msvc-asan",
       "inherits": "base",
       "displayName": "MSVC with ASan, portable layers only",
-      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "Debug", "CMAKE_CXX_FLAGS": "/fsanitize=address" }
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "/fsanitize=address"
+      }
+    },
+    {
+      "name": "mingw-gcc-debug",
+      "inherits": "base",
+      "displayName": "MinGW-w64 GCC 16 on Windows (g++ first on PATH), all layers including reflection",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "mingw-gcc-release",
+      "inherits": "base",
+      "displayName": "MinGW-w64 GCC 16 on Windows, Release",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
     }
   ]
 }

@@ -35,6 +35,10 @@ and a non-constexpr function calling `string_view::find`, all print the right in
 reading, not verified in GCC's sources: the front end folds the `memchr` behind `find` while it
 tries to evaluate the constexpr call ahead of time, and adds the offset twice.
 
+The same reproduction prints 3 for "f literal" and "g literal" at `-O2` with MinGW-w64 GCC 16.2.0
+(WinLibs r3, the 16.2.0 release, 2026-10-23), so the defect is in the release, not only in Arch's
+16.2.1 snapshot.
+
 What this repository does: the portable layer uses no `string_view::find` in constexpr code
 (`grpc.hpp` `split_path` and the lexer's symbol test use loops). `test_grpc` and `test_schema`
 call these functions with literals, so a regression shows.
@@ -50,6 +54,9 @@ The other UBSan checks and ASan compile it.
 A reduced testcase (in `design/gcc-report-drafts.md`) fails the same way with
 `-fno-delete-null-pointer-checks` alone, which matches GCC PR 71962 (`-fsanitize=null` implies that
 option, and constant folding of an address compared with null stops).
+
+With MinGW-w64 GCC 16.2.0 the reduced testcase compiles cleanly with `-fsanitize=null` and with
+`-fno-delete-null-pointer-checks`, so F2 depends on the target.
 
 What this repository does: the `linux-gcc-asan` preset uses
 `-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute`.

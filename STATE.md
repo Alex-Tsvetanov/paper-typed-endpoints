@@ -65,6 +65,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   - `linux-clang-debug`, `linux-clang-asan` (libc++, full UBSan): portable tests pass;
     `reflection_layer` is reported Skipped with the reason.
   - `msvc-debug`, `msvc-release`, `msvc-asan`: portable tests pass; `reflection_layer` Skipped.
+  - `mingw-gcc-debug`, `mingw-gcc-release` (MinGW-w64 GCC 16.2.0, first on PATH): 14 of 14 pass,
+    reflection included (2026-10-23).
 - Tests: golden wire vectors from `protoc` (`tests/golden/README.md`: protoc 3.21.12 from the
   local `ctpb-dev` image, a development oracle only); the encoder output equals them byte for
   byte for all 15 scalar types, enums, nested and repeated fields; `#embed` reads the schemas.
@@ -77,6 +79,19 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   released compiler. GCC 16 refuses `^^std::int32_t`; reflect such types through a template.
 - clang 22.1.8 rejects `-freflection`. MSVC 19.51.36246 has no P2996 and no `#embed`.
 - CMake 4.3.2 (Windows) has no C++26 flag for MSVC: the MSVC build uses C++23.
+- MinGW-w64 GCC 16 on the desktop (Alex decides 1, probe passed 2026-10-23):
+  `winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3.zip` from github.com/brechtsanders/
+  winlibs_mingw release `16.2.0posix-23.1.3-14.0.0-ucrt-r3` (2026-10-18), 276,414,382 bytes,
+  sha256 3c69305081e4a647144339a936244fcf7d3d9e558319e1ad7be2cd2886d4b6a1, equal to the release
+  asset's published digest. Zip kept in `C:\Users\alext\opt\_dl\p5-winlibs-gcc16-r3`, unpacked
+  with `tar.exe` to `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH).
+  `g++` 16.2.0 (r3), GNU ld 2.47.20260726: `__cpp_impl_reflection` 202603L, `#embed`, constexpr
+  exceptions. F1 reproduces at `-O2` (so it is in the 16.2.0 release too); F2 does not reproduce
+  on this target. No ASan or UBSan on MinGW GCC.
+- Version gap: Linux has GCC 16.2.1 20260810 (Arch, a 16-branch snapshot), Windows 16.2.0 (a
+  release). To decide before the freeze: accept and declare the gap, or pin one exact version on
+  both OSes (for example GCC 16.2.0 built from source on Arch). The within-OS contrasts (reflection
+  against protoc) use one compiler either way; only the cross-OS contrast is affected.
 - Compiler findings (details in `design/compiler-findings.md`):
   - F1: GCC 16.2.1 miscompiles `string_view::find` from an offset when a constexpr function
     receives a string literal. The portable layer avoids `find` in constexpr code.
@@ -130,6 +145,9 @@ None run. The coordinator batches these and asks Alex for the hours.
 2. Pin Go and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
    through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
 3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
+4. The laptop's Windows needs the same MinGW-w64 GCC 16.2.0 zip: copy it from the desktop's
+   `C:\Users\alext\opt\_dl\p5-winlibs-gcc16-r3`, check the sha256 on the laptop, unpack to the
+   same path, and add a row to `lab/laptop/versions.md` (a lab tooling change, the coordinator's).
 
 ## Alex decides
 

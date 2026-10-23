@@ -8,7 +8,8 @@ match for F1. Also check whether a GCC 16 snapshot newer than 16.2.1 20260810 st
 ## F1. Wrong index from std::string_view::find with a start offset in a constexpr function
 
 **Component:** c++ (or libstdc++; the narrowing below points at constant folding in the front end).
-**Version:** g++ (GCC) 16.2.1 20260810, Arch Linux package `gcc 16.2.1+r23+gd564253eb6c8-1`, x86_64.
+**Version:** g++ (GCC) 16.2.1 20260810, Arch Linux package `gcc 16.2.1+r23+gd564253eb6c8-1`, x86_64;
+also g++ 16.2.0 (MinGW-w64 x86_64-ucrt-posix-seh, WinLibs r3), the 16.2.0 release.
 **Options:** `-std=c++26 -O1` (also `-O2`). Correct at `-O0` in the reduced test and with `-std=c++23 -O0`.
 
 Testcase:
@@ -46,7 +47,8 @@ Likely the same root cause as PR 71962 (https://gcc.gnu.org/bugzilla/show_bug.cg
 address compared with null. If PR 71962 is open, add this as a comment there rather than a new
 report.
 
-**Version:** as for F1. **Options:** `-std=c++26 -fsanitize=null` (also `nonnull-attribute`,
+**Version:** the Arch build of F1 (x86_64-pc-linux-gnu). Not reproduced with MinGW-w64 GCC 16.2.0.
+**Options:** `-std=c++26 -fsanitize=null` (also `nonnull-attribute`,
 `returns-nonnull-attribute`, or `-fno-delete-null-pointer-checks` alone).
 
 Testcase:

@@ -54,8 +54,10 @@ Both generators are compiled by the same GCC, so the compile curves isolate the 
 Windows. MSVC 19.51 has neither P2996 nor `#embed`. The portable layers are tested with MSVC.
 For the reflection layer Alex chose (2026-10-23) MinGW-w64 GCC 16 on the laptop's Windows for
 both generators, so the same compiler runs on both OSes and the OS is the only change, after a
-desktop probe that it builds and passes the reflection tests; if it fails, Windows is a declared
-gap.
+desktop probe that it builds and passes the reflection tests. The probe passed on 2026-10-23:
+WinLibs GCC 16.2.0 (MinGW-w64 14.0.0, UCRT) builds every layer and passes all 14 tests. Linux has
+GCC 16.2.1 (a branch snapshot); pinning one exact version on both OSes is decided before the
+freeze.
 
 Compiler findings so far (functional, desktop):
 - GCC 16.2.1 miscompiles `std::string_view::find` from a nonzero offset when a `constexpr`
