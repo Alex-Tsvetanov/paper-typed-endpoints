@@ -149,6 +149,8 @@ constexpr bad_case bad_cases[] = {
     {"unknown field option", P3 "message A { int32 a = 1 [no_such = 1]; }\n", errc::unsupported_option, 2, 26},
     {"custom option", P3 "message A {}\nservice S { rpc M(A) returns (A) { option (google.api.http) = { get: \"/v\" }; } }\n",
      errc::unsupported_option, 3, 43},
+    {"backslash before a newline", P3 "option go_package = \"a\\\nb\";\n", errc::unterminated_string, 2, 21},
+    {"backslash at the end", P3 "option go_package = \"a\\", errc::unterminated_string, 2, 21},
 };
 
 #undef P3

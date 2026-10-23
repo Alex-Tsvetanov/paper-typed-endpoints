@@ -47,6 +47,10 @@ With `-fsanitize=null`, `-fsanitize=nonnull-attribute` or `-fsanitize=returns-no
 constant expression`, raised in `basic_string` during the schema tables' constant evaluation.
 The other UBSan checks and ASan compile it.
 
+A reduced testcase (in `design/gcc-report-drafts.md`) fails the same way with
+`-fno-delete-null-pointer-checks` alone, which matches GCC PR 71962 (`-fsanitize=null` implies that
+option, and constant folding of an address compared with null stops).
+
 What this repository does: the `linux-gcc-asan` preset uses
 `-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute`.
 This is a declared sanitizer gap for the reflection layer.

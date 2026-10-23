@@ -27,12 +27,16 @@ design note maps each erratum to the P5 test or experiment that replaces it.
     `enum_value`, codec (`byte_size`, `encode_to`, `encode`, `encode_framed`, `merge_from`,
     `decode`), member-wise `operator==`, and `endpoint<S, "pkg.Service", Impl>` with
     `invoke` and `invoke_framed`. Hard `#error` without `__cpp_impl_reflection`; no fallback.
-- Supported proto3: scalars, enums (as `int32_t`), nested messages (`std::optional<M>`), repeated
-  (packed by default, `[packed]` honored), reserved, options without wire meaning, services with
-  unary rpcs. Refused with a diagnostic: map, oneof, `optional`, `required`, groups, extensions,
+- Supported proto3: scalars, enums (as `int32_t`), nested messages (`tep::box<M>`, one pointer
+  when absent), repeated (packed by default, `[packed]` honored), reserved, the descriptor.proto
+  options of each level (allow-lists), services with unary rpcs. Unknown and custom options are
+  refused (custom options need an import). Refused with a diagnostic: map, oneof, `optional`, `required`, groups, extensions,
   import, editions, streaming, recursive messages, `[default]`, `message_set_wire_format`.
 - Not yet written: HTTP/2 transport (libnghttp2), the `protoc` arm, the benchmark server with
-  runtime arm selection, `bench/gen_schema.py`, grpc-go interop programs, `bench/coverage.json`.
+  runtime arm selection, grpc-go interop programs, libFuzzer targets for the schema parser and
+  the decoder (the brief requires them; `linux-clang-asan` can build them for the portable
+  layers), and the related-work survey (the brief puts it first; Sonnet gathers, Opus re-checks
+  every claim). `bench/gen_schema.py` and a draft `bench/coverage.json` exist.
 - Known performance items, unmeasured: nested message sizes are recomputed while writing (no
   size cache); decode dispatch is a linear chain over fields. Both wait for laptop probes.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
@@ -56,8 +60,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `bash tools/dev_linux_all.sh linux-gcc-debug` (Git Bash: set `MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
 - Results on 2026-10-23 (pass or fail only):
-  - `linux-gcc-debug`, `linux-gcc-release`, `linux-gcc-asan`: 12 of 12 pass (schema, wire, grpc,
-    reflect, endpoint, 5 compile-fail tests, name guard and its canary).
+  - `linux-gcc-debug`, `linux-gcc-release`, `linux-gcc-asan`: 14 of 14 pass (schema, wire, grpc,
+    reflect, endpoint, 7 compile-fail tests, name guard and its canary).
   - `linux-clang-debug`, `linux-clang-asan` (libc++, full UBSan): portable tests pass;
     `reflection_layer` is reported Skipped with the reason.
   - `msvc-debug`, `msvc-release`, `msvc-asan`: portable tests pass; `reflection_layer` Skipped.
@@ -94,6 +98,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       lexed as one floating token, no per-request decode allocation cap beyond the 4 MiB frame
       limit (memory amplification from repeated empty messages is bounded by sizeof(M) per two
       input bytes, as in libprotobuf).
+- [x] Second fresh review (Opus) of the optimization diff 8764052..de304a9: no CRITICAL or HIGH;
+      the MEDIUM (a backslash before a newline in a string lost the line count; now refused, as
+      protoc does) and two LOW (hash-flooding fallback to a sort, capped token reservation) are
+      fixed in the next commit.
 - [ ] Next engineering: transport, `protoc` arm, schema generator, desktop pass/fail probe of the
       compile ladder under default GCC limits, grpc-go interop.
 
@@ -101,8 +109,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 None run. The coordinator batches these and asks Alex for the hours.
 
-1. Ready now. Read the GCC version on `lap-linux` (`g++ --version`, `pacman -Q gcc`) and compile
-   one `define_aggregate` probe with `-std=c++26 -freflection`; also run F1's reproduction.
+1. Ready now. Read the GCC version on `lap-linux` (`g++ --version`, `pacman -Q gcc`) and compare
+   it with the image's exact package `gcc 16.2.1+r23+gd564253eb6c8-1`; compile one
+   `define_aggregate` probe with `-std=c++26 -freflection`; run F1's reproduction. The operation
+   counts, the ladder ceilings and F1 transfer only if the build is identical.
    Arch. Under 5 minutes. Basis: two commands and two compiles of a few lines.
 2. Not ready (needs the schema generator, the pinned protobuf and the G_P build). Compile-curve
    pilot: the smallest and largest size of each shape and generator, 3 builds each, 24 builds.
@@ -123,16 +133,24 @@ None run. The coordinator batches these and asks Alex for the hours.
 
 ## Alex decides
 
-1. Windows coverage for the reflection layer. MSVC has no P2996. (a) MinGW-w64 GCC 16 on the
-   laptop's Windows for both generators, so the compiler is the same on both OSes; (b) a declared
-   coverage gap for Windows compile curves, the Windows runtime comparison built by (a) or dropped.
-2. D5 sanitizers for the reflection layer: no clang tool parses it; GCC gives ASan, TSan and UBSan
-   without three null checks (F2); no MSan. Proposal: GCC records plus declared gaps in
-   `bench/coverage.json`. Needed before any number is citable.
-3. Keep the gRPC C++ reference arm G (largest engineering item), or narrow the end-to-end claim
-   to reflection against `protoc` messages on the same transport (design note D-G).
-4. Load generator: h2load or ghz (design note D-L).
-5. Whether to report F1 (and F2) to GCC upstream. Outbound, so only Alex sends it.
+Answered by Alex on 2026-10-23 (AskUserQuestion, recommended option each time):
+
+1. Windows coverage for the reflection layer: MinGW-w64 GCC 16, probe first. A pinned MinGW-w64
+   GCC 16 is probed on the desktop; if it builds and passes the reflection tests, it builds both
+   generators on the laptop's Windows. If the probe fails, Windows is a declared gap (Linux only).
+2. D5 for the reflection layer: GCC ASan, UBSan (without `null`, `nonnull-attribute`,
+   `returns-nonnull-attribute`) and TSan records; the full clang set for the portable layers;
+   the gaps declared in `bench/coverage.json`.
+3. gRPC C++ reference arm G: kept, built after the reflection and protoc arms.
+4. Load generator: h2load (pinned nghttp2 build) drives the timed runs; ghz runs the grpc-go
+   interop check and one cross-check.
+5. GCC defects F1 and F2: I search GCC Bugzilla for duplicates and draft both reports in
+   `design/`; Alex files them himself. Nothing is sent on his behalf.
+
+Open: none. Next actions from these answers: the MinGW-w64 GCC 16 desktop probe (a pinned
+download into a fresh folder, checked against its published sha256). The two report drafts are in
+`design/gcc-report-drafts.md` (F2 is probably GCC PR 71962; Bugzilla refuses automated searches,
+so Alex checks for duplicates by hand before filing).
 
 ## Never
 

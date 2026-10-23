@@ -330,7 +330,7 @@ namespace detail {
 // checked index and every call: this keeps the cost per character small.
 [[nodiscard]] constexpr std::expected<std::vector<token>, error> tokenize(std::string_view src) {
     std::vector<token> out;
-    out.reserve(src.size() / 4 + 1);
+    out.reserve(std::min<std::size_t>(src.size() / 4 + 1, std::size_t{1} << 16));
     const char* const end = src.data() + src.size();
     const char* p = src.data();
     const char* line_start = p;
@@ -409,7 +409,10 @@ namespace detail {
                 const char d = *p;
                 if (d == '\n') break;
                 if (d == '\\') {
-                    p += end - p > 1 ? 2 : 1;
+                    // An escape may not end the input or the line: protoc rejects a backslash before
+                    // a newline, and stepping over it would also lose the line count.
+                    if (end - p < 2 || p[1] == '\n') break;
+                    p += 2;
                     continue;
                 }
                 if (d == c) {
@@ -1074,17 +1077,31 @@ struct scoped_name {
 }
 
 // The index of the first field whose name an earlier field already has, or npos. One pass over
-// an open-addressing hash set, so the cost stays linear in constant evaluation.
+// an open-addressing hash set, so the cost stays linear in constant evaluation. Names crafted to
+// collide in the hash would make probing quadratic, so a long probe run falls back to a sort.
 [[nodiscard]] constexpr std::uint32_t first_duplicate_name(const std::vector<field>& fields,
                                                            std::vector<std::uint32_t>& slots) {
+    constexpr std::size_t max_probe = 32;
     std::size_t size = 16;
     while (size < 2 * fields.size()) size *= 2;
     slots.assign(size, 0);
     const std::size_t mask = size - 1;
     for (std::uint32_t k = 0; k < fields.size(); ++k) {
         std::size_t i = fnv1a(fields[k].name) & mask;
+        std::size_t probes = 0;
         while (slots[i] != 0) {
             if (fields[slots[i] - 1].name == fields[k].name) return k;
+            if (++probes > max_probe) {
+                std::vector<std::pair<std::string_view, std::uint32_t>> sorted;
+                sorted.reserve(fields.size());
+                for (std::uint32_t j = 0; j < fields.size(); ++j) sorted.emplace_back(fields[j].name, j);
+                std::sort(sorted.begin(), sorted.end());
+                std::uint32_t first = npos;
+                for (std::size_t j = 1; j < sorted.size(); ++j)
+                    if (sorted[j].first == sorted[j - 1].first)
+                        first = std::min(first, std::max(sorted[j].second, sorted[j - 1].second));
+                return first;
+            }
             i = (i + 1) & mask;
         }
         slots[i] = k + 1;
