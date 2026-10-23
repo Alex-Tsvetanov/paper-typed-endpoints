@@ -1,0 +1,4 @@
+# The integration library's normalized names (lowercase letters and digits), as
+# '<length> <sha256 hex>' lines. The names themselves never appear in this repository.
+8 cf5b090096bb6f4307ccec3100556d5e29d897761821d5cf44351983bb33a228
+7 b28473c7e516a8f57f976a97dae663a70d7b8ef79a5d8fd64e1986eadc9c43a1

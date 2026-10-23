@@ -1,0 +1,74 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}"
+    },
+    {
+      "name": "linux-gcc-debug",
+      "inherits": "base",
+      "displayName": "GCC 16, all layers including reflection",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++", "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "linux-gcc-release",
+      "inherits": "base",
+      "displayName": "GCC 16, Release",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "g++", "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "linux-gcc-asan",
+      "inherits": "base",
+      "displayName": "GCC 16, ASan and UBSan without the null checks that break constant evaluation",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute -fno-sanitize-recover=all -fno-omit-frame-pointer"
+      }
+    },
+    {
+      "name": "linux-clang-debug",
+      "inherits": "base",
+      "displayName": "clang 22 with libc++, portable layers only",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++"
+      }
+    },
+    {
+      "name": "linux-clang-asan",
+      "inherits": "base",
+      "displayName": "clang 22 with libc++, ASan and full UBSan, portable layers only",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -fsanitize=address,undefined"
+      }
+    },
+    {
+      "name": "msvc-debug",
+      "inherits": "base",
+      "displayName": "MSVC, portable layers only",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "msvc-release",
+      "inherits": "base",
+      "displayName": "MSVC Release, portable layers only",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "msvc-asan",
+      "inherits": "base",
+      "displayName": "MSVC with ASan, portable layers only",
+      "cacheVariables": { "CMAKE_CXX_COMPILER": "cl", "CMAKE_BUILD_TYPE": "Debug", "CMAKE_CXX_FLAGS": "/fsanitize=address" }
+    }
+  ]
+}

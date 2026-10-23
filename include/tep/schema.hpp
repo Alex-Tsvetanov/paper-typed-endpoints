@@ -1,0 +1,1188 @@
+// Copyright 2026 Alex Tsvetanov
+// SPDX-License-Identifier: Apache-2.0
+//
+// Portable proto3 front end: lexer, recursive-descent parser, semantic checks and name
+// resolution. Plain C++23, usable at run time and in constant evaluation. It never throws:
+// the first error is returned with its line and column. The reflection layer turns that error
+// into a compile-time diagnostic.
+#pragma once
+
+#include <algorithm>
+#include <cstdint>
+#include <expected>
+#include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
+
+namespace tep::schema {
+
+inline constexpr std::uint32_t npos = 0xFFFF'FFFFu;
+inline constexpr std::uint32_t max_field_number = (1u << 29) - 1;
+inline constexpr std::uint32_t first_implementation_number = 19000;
+inline constexpr std::uint32_t last_implementation_number = 19999;
+inline constexpr std::uint32_t max_nesting = 32;
+
+enum class scalar : std::uint8_t {
+    double_, float_, int64, uint64, int32, fixed64, fixed32, bool_,
+    string, bytes, uint32, sfixed32, sfixed64, sint32, sint64,
+};
+
+enum class field_kind : std::uint8_t { scalar, enumeration, message };
+
+[[nodiscard]] constexpr bool is_packable(scalar s) noexcept {
+    return s != scalar::string && s != scalar::bytes;
+}
+
+enum class errc : std::uint8_t {
+    unexpected_token,
+    unexpected_end,
+    unterminated_comment,
+    unterminated_string,
+    invalid_character,
+    expected_identifier,
+    expected_integer,
+    expected_string,
+    integer_overflow,
+    missing_syntax,
+    syntax_not_proto3,
+    duplicate_package,
+    field_number_out_of_range,
+    field_number_in_implementation_range,
+    duplicate_field_number,
+    duplicate_field_name,
+    field_number_reserved,
+    field_name_reserved,
+    bad_reserved_range,
+    duplicate_definition,
+    unknown_type,
+    not_a_message_type,
+    recursive_message,
+    empty_enum,
+    enum_first_value_not_zero,
+    duplicate_enum_value_name,
+    enum_value_alias,
+    enum_value_out_of_range,
+    packed_on_non_packable,
+    unsupported_option,
+    unsupported_map,
+    unsupported_oneof,
+    unsupported_optional,
+    unsupported_label,
+    unsupported_streaming,
+    unsupported_import,
+    unsupported_extensions,
+    unsupported_group,
+    unsupported_editions,
+    nesting_too_deep,
+};
+
+[[nodiscard]] constexpr std::string_view describe(errc e) noexcept {
+    switch (e) {
+        case errc::unexpected_token: return "unexpected token";
+        case errc::unexpected_end: return "unexpected end of schema";
+        case errc::unterminated_comment: return "unterminated block comment";
+        case errc::unterminated_string: return "unterminated string literal";
+        case errc::invalid_character: return "invalid character";
+        case errc::expected_identifier: return "expected an identifier";
+        case errc::expected_integer: return "expected an integer";
+        case errc::expected_string: return "expected a string literal";
+        case errc::integer_overflow: return "integer literal out of range";
+        case errc::missing_syntax: return "missing 'syntax = \"proto3\";' as the first statement";
+        case errc::syntax_not_proto3: return "only syntax \"proto3\" is supported";
+        case errc::duplicate_package: return "more than one package statement";
+        case errc::field_number_out_of_range: return "field number must be in 1 to 536870911";
+        case errc::field_number_in_implementation_range:
+            return "field numbers 19000 to 19999 are reserved for the protobuf implementation";
+        case errc::duplicate_field_number: return "duplicate field number";
+        case errc::duplicate_field_name: return "duplicate field name";
+        case errc::field_number_reserved: return "field number is reserved";
+        case errc::field_name_reserved: return "field name is reserved";
+        case errc::bad_reserved_range: return "reserved range has its start after its end";
+        case errc::duplicate_definition: return "name is defined twice";
+        case errc::unknown_type: return "unknown type name";
+        case errc::not_a_message_type: return "rpc request and response types must be messages";
+        case errc::recursive_message: return "recursive message types are not supported";
+        case errc::empty_enum: return "enum has no values";
+        case errc::enum_first_value_not_zero: return "the first enum value must be zero in proto3";
+        case errc::duplicate_enum_value_name: return "duplicate enum value name";
+        case errc::enum_value_alias: return "two enum values share a number without allow_alias";
+        case errc::enum_value_out_of_range: return "enum value must fit in int32";
+        case errc::packed_on_non_packable:
+            return "[packed = true] is only valid on repeated numeric, bool and enum fields";
+        case errc::unsupported_option: return "unsupported option";
+        case errc::unsupported_map: return "map fields are not supported";
+        case errc::unsupported_oneof: return "oneof is not supported";
+        case errc::unsupported_optional: return "proto3 optional fields are not supported";
+        case errc::unsupported_label: return "only the 'repeated' label is supported";
+        case errc::unsupported_streaming: return "streaming rpcs are not supported (unary only)";
+        case errc::unsupported_import: return "import is not supported";
+        case errc::unsupported_extensions: return "extensions are not supported";
+        case errc::unsupported_group: return "groups are not supported";
+        case errc::unsupported_editions: return "editions are not supported";
+        case errc::nesting_too_deep: return "definitions are nested too deeply";
+    }
+    return "unknown error";
+}
+
+struct location {
+    std::uint32_t line = 1;
+    std::uint32_t column = 1;
+};
+
+struct error {
+    errc code{};
+    location loc{};
+    std::string_view token{};
+};
+
+struct field {
+    std::string_view name;
+    std::uint32_t number = 0;
+    field_kind kind = field_kind::scalar;
+    scalar type = scalar::int32;
+    std::string type_name;           // as written, for enum and message fields
+    std::uint32_t type_index = npos; // resolved index into file::enums or file::messages
+    bool repeated = false;
+    bool packed = false;             // effective encoding of a repeated field
+    std::int8_t packed_option = -1;  // -1 unset, 0 [packed = false], 1 [packed = true]
+    location loc{};
+};
+
+struct reserved_range {
+    std::int64_t lo = 0;
+    std::int64_t hi = 0;  // inclusive
+};
+
+struct message {
+    std::string_view name;
+    std::string full_name;
+    std::uint32_t parent = npos;
+    std::vector<field> fields;
+    std::vector<reserved_range> reserved_ranges;
+    std::vector<std::string_view> reserved_names;
+    location loc{};
+};
+
+struct enum_value {
+    std::string_view name;
+    std::int32_t number = 0;
+    location loc{};
+};
+
+struct enumeration {
+    std::string_view name;
+    std::string full_name;
+    std::uint32_t parent = npos;
+    std::vector<enum_value> values;
+    std::vector<reserved_range> reserved_ranges;
+    std::vector<std::string_view> reserved_names;
+    bool allow_alias = false;
+    location loc{};
+};
+
+struct rpc {
+    std::string_view name;
+    std::string request_name;   // as written
+    std::string response_name;  // as written
+    std::uint32_t request = npos;
+    std::uint32_t response = npos;
+    location loc{};
+    location request_loc{};
+    location response_loc{};
+};
+
+struct service {
+    std::string_view name;
+    std::string full_name;
+    std::vector<rpc> rpcs;
+    location loc{};
+};
+
+struct file {
+    std::string package;
+    std::vector<message> messages;
+    std::vector<enumeration> enums;
+    std::vector<service> services;
+    std::vector<std::uint32_t> definition_order;  // message indices, dependencies first
+
+    [[nodiscard]] constexpr std::uint32_t find_message(std::string_view full) const noexcept {
+        for (std::size_t i = 0; i < messages.size(); ++i)
+            if (messages[i].full_name == full) return static_cast<std::uint32_t>(i);
+        return npos;
+    }
+    [[nodiscard]] constexpr std::uint32_t find_enum(std::string_view full) const noexcept {
+        for (std::size_t i = 0; i < enums.size(); ++i)
+            if (enums[i].full_name == full) return static_cast<std::uint32_t>(i);
+        return npos;
+    }
+    [[nodiscard]] constexpr std::uint32_t find_service(std::string_view full) const noexcept {
+        for (std::size_t i = 0; i < services.size(); ++i)
+            if (services[i].full_name == full) return static_cast<std::uint32_t>(i);
+        return npos;
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Lexer
+
+enum class tok : std::uint8_t { end, ident, integer, floating, string, symbol };
+
+struct token {
+    tok kind = tok::end;
+    std::string_view text;  // for strings: the contents between the quotes, escapes not decoded
+    location loc{};
+};
+
+namespace detail {
+
+[[nodiscard]] constexpr bool is_alpha(char c) noexcept {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+[[nodiscard]] constexpr bool is_digit(char c) noexcept { return c >= '0' && c <= '9'; }
+[[nodiscard]] constexpr bool is_alnum(char c) noexcept { return is_alpha(c) || is_digit(c); }
+[[nodiscard]] constexpr bool is_hex(char c) noexcept {
+    return is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+// A switch, not string_view::find (see split_path in grpc.hpp for the GCC 16.2.1 defect).
+[[nodiscard]] constexpr bool is_symbol_char(char c) noexcept {
+    switch (c) {
+        case '{': case '}': case '(': case ')': case '[': case ']': case ';': case '=':
+        case ',': case '<': case '>': case '.': case '-': case '+': case ':': return true;
+        default: return false;
+    }
+}
+[[nodiscard]] constexpr int hex_value(char c) noexcept {
+    if (is_digit(c)) return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return c - 'A' + 10;
+}
+
+// Parses a protobuf integer literal (decimal, hex or octal). Returns false on a malformed
+// literal; sets overflow when the value does not fit in 64 bits.
+[[nodiscard]] constexpr bool parse_integer(std::string_view t, std::uint64_t& out,
+                                           bool& overflow) noexcept {
+    overflow = false;
+    out = 0;
+    if (t.empty()) return false;
+    std::uint64_t base = 10;
+    std::size_t i = 0;
+    if (t.size() > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X')) {
+        base = 16;
+        i = 2;
+    } else if (t.size() > 1 && t[0] == '0') {
+        base = 8;
+        i = 1;
+    }
+    for (; i < t.size(); ++i) {
+        const char c = t[i];
+        std::uint64_t d = 0;
+        if (base == 16) {
+            if (!is_hex(c)) return false;
+            d = static_cast<std::uint64_t>(hex_value(c));
+        } else {
+            if (!is_digit(c)) return false;
+            d = static_cast<std::uint64_t>(c - '0');
+            if (d >= base) return false;
+        }
+        if (out > (~std::uint64_t{0} - d) / base) overflow = true;
+        out = out * base + d;
+    }
+    return true;
+}
+
+[[nodiscard]] constexpr bool is_integer_literal(std::string_view t) noexcept {
+    std::uint64_t v = 0;
+    bool overflow = false;
+    return parse_integer(t, v, overflow);
+}
+
+}  // namespace detail
+
+// Splits the whole source into tokens. One pass; tokens view the source.
+[[nodiscard]] constexpr std::expected<std::vector<token>, error> tokenize(std::string_view src) {
+    std::vector<token> out;
+    std::size_t i = 0;
+    location loc{};
+    const auto advance = [&](std::size_t n) {
+        for (std::size_t k = 0; k < n && i < src.size(); ++k, ++i) {
+            if (src[i] == '\n') {
+                ++loc.line;
+                loc.column = 1;
+            } else {
+                ++loc.column;
+            }
+        }
+    };
+    while (i < src.size()) {
+        const char c = src[i];
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v') {
+            advance(1);
+            continue;
+        }
+        if (c == '/' && i + 1 < src.size() && src[i + 1] == '/') {
+            while (i < src.size() && src[i] != '\n') advance(1);
+            continue;
+        }
+        if (c == '/' && i + 1 < src.size() && src[i + 1] == '*') {
+            const location start = loc;
+            advance(2);
+            bool closed = false;
+            while (i < src.size()) {
+                if (src[i] == '*' && i + 1 < src.size() && src[i + 1] == '/') {
+                    advance(2);
+                    closed = true;
+                    break;
+                }
+                advance(1);
+            }
+            if (!closed) return std::unexpected(error{errc::unterminated_comment, start, "/*"});
+            continue;
+        }
+        const location start = loc;
+        const std::size_t b = i;
+        if (detail::is_alpha(c)) {
+            while (i < src.size() && detail::is_alnum(src[i])) advance(1);
+            out.push_back({tok::ident, src.substr(b, i - b), start});
+            continue;
+        }
+        if (detail::is_digit(c) || (c == '.' && i + 1 < src.size() && detail::is_digit(src[i + 1]))) {
+            const bool hex = src.size() > b + 1 && src[b] == '0' && (src[b + 1] == 'x' || src[b + 1] == 'X');
+            while (i < src.size()) {
+                const char d = src[i];
+                if (detail::is_alnum(d) || d == '.') {
+                    advance(1);
+                } else if ((d == '+' || d == '-') && !hex && (src[i - 1] == 'e' || src[i - 1] == 'E')) {
+                    advance(1);
+                } else {
+                    break;
+                }
+            }
+            const std::string_view text = src.substr(b, i - b);
+            out.push_back({detail::is_integer_literal(text) ? tok::integer : tok::floating, text, start});
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            advance(1);
+            const std::size_t content = i;
+            bool closed = false;
+            while (i < src.size()) {
+                const char d = src[i];
+                if (d == '\n') break;
+                if (d == '\\') {
+                    advance(2);
+                    continue;
+                }
+                if (d == c) {
+                    closed = true;
+                    break;
+                }
+                advance(1);
+            }
+            if (!closed) return std::unexpected(error{errc::unterminated_string, start, src.substr(b, 1)});
+            out.push_back({tok::string, src.substr(content, i - content), start});
+            advance(1);
+            continue;
+        }
+        if (detail::is_symbol_char(c)) {
+            advance(1);
+            out.push_back({tok::symbol, src.substr(b, 1), start});
+            continue;
+        }
+        return std::unexpected(error{errc::invalid_character, start, src.substr(b, 1)});
+    }
+    out.push_back({tok::end, {}, loc});
+    return out;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Parser
+
+namespace detail {
+
+struct scalar_name {
+    std::string_view name;
+    scalar type;
+};
+
+inline constexpr scalar_name scalar_names[] = {
+    {"double", scalar::double_},    {"float", scalar::float_},   {"int64", scalar::int64},
+    {"uint64", scalar::uint64},     {"int32", scalar::int32},    {"fixed64", scalar::fixed64},
+    {"fixed32", scalar::fixed32},   {"bool", scalar::bool_},     {"string", scalar::string},
+    {"bytes", scalar::bytes},       {"uint32", scalar::uint32},  {"sfixed32", scalar::sfixed32},
+    {"sfixed64", scalar::sfixed64}, {"sint32", scalar::sint32},  {"sint64", scalar::sint64},
+};
+
+[[nodiscard]] constexpr bool find_scalar(std::string_view n, scalar& out) noexcept {
+    for (const auto& s : scalar_names) {
+        if (s.name == n) {
+            out = s.type;
+            return true;
+        }
+    }
+    return false;
+}
+
+class parser {
+public:
+    constexpr explicit parser(std::vector<token> toks) : toks_(std::move(toks)) {}
+
+    [[nodiscard]] constexpr bool parse_file() {
+        if (!parse_syntax()) return false;
+        while (!at_end()) {
+            const token& t = peek();
+            if (is_symbol(t, ';')) {
+                ++i_;
+            } else if (is_word(t, "package")) {
+                if (!parse_package()) return false;
+            } else if (is_word(t, "import")) {
+                return fail(errc::unsupported_import, t);
+            } else if (is_word(t, "option")) {
+                if (!parse_option(level::file)) return false;
+            } else if (is_word(t, "message")) {
+                if (!parse_message(npos, "")) return false;
+            } else if (is_word(t, "enum")) {
+                if (!parse_enum(npos, "")) return false;
+            } else if (is_word(t, "service")) {
+                if (!parse_service()) return false;
+            } else if (is_word(t, "extend")) {
+                return fail(errc::unsupported_extensions, t);
+            } else {
+                return fail(errc::unexpected_token, t);
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr file& result() noexcept { return out_; }
+    [[nodiscard]] constexpr const error& failure() const noexcept { return err_; }
+
+private:
+    enum class level : std::uint8_t { file, message, enumeration, service, rpc };
+
+    std::vector<token> toks_;
+    std::size_t i_ = 0;
+    file out_{};
+    error err_{};
+    std::uint32_t depth_ = 0;
+    bool have_package_ = false;
+
+    [[nodiscard]] constexpr const token& peek(std::size_t ahead = 0) const noexcept {
+        const std::size_t k = i_ + ahead;
+        return k < toks_.size() ? toks_[k] : toks_.back();
+    }
+    [[nodiscard]] constexpr bool at_end() const noexcept { return peek().kind == tok::end; }
+    [[nodiscard]] static constexpr bool is_symbol(const token& t, char c) noexcept {
+        return t.kind == tok::symbol && t.text.size() == 1 && t.text[0] == c;
+    }
+    [[nodiscard]] static constexpr bool is_word(const token& t, std::string_view w) noexcept {
+        return t.kind == tok::ident && t.text == w;
+    }
+    constexpr bool fail(errc code, const token& t) {
+        err_ = error{t.kind == tok::end ? errc::unexpected_end : code, t.loc, t.text};
+        return false;
+    }
+    constexpr bool fail_at(errc code, location loc, std::string_view text) {
+        err_ = error{code, loc, text};
+        return false;
+    }
+    [[nodiscard]] constexpr bool expect_symbol(char c) {
+        if (!is_symbol(peek(), c)) return fail(errc::unexpected_token, peek());
+        ++i_;
+        return true;
+    }
+    [[nodiscard]] constexpr bool expect_ident(std::string_view& out) {
+        const token& t = peek();
+        if (t.kind != tok::ident) return fail(errc::expected_identifier, t);
+        out = t.text;
+        ++i_;
+        return true;
+    }
+    [[nodiscard]] constexpr bool expect_integer(std::uint64_t& out) {
+        const token& t = peek();
+        if (t.kind != tok::integer) return fail(errc::expected_integer, t);
+        bool overflow = false;
+        (void)parse_integer(t.text, out, overflow);
+        if (overflow) return fail(errc::integer_overflow, t);
+        ++i_;
+        return true;
+    }
+    // ['.'] ident ('.' ident)*
+    [[nodiscard]] constexpr bool parse_type_name(std::string& out) {
+        out.clear();
+        if (is_symbol(peek(), '.')) {
+            out.push_back('.');
+            ++i_;
+        }
+        std::string_view part;
+        if (!expect_ident(part)) return false;
+        out.append(part);
+        while (is_symbol(peek(), '.')) {
+            ++i_;
+            if (!expect_ident(part)) return false;
+            out.push_back('.');
+            out.append(part);
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool parse_syntax() {
+        const token& t = peek();
+        if (is_word(t, "edition")) return fail(errc::unsupported_editions, t);
+        if (!is_word(t, "syntax")) return fail(errc::missing_syntax, t);
+        ++i_;
+        if (!expect_symbol('=')) return false;
+        const token& v = peek();
+        if (v.kind != tok::string) return fail(errc::expected_string, v);
+        if (v.text != "proto3") return fail(errc::syntax_not_proto3, v);
+        ++i_;
+        return expect_symbol(';');
+    }
+
+    [[nodiscard]] constexpr bool parse_package() {
+        const token& kw = peek();
+        if (have_package_) return fail(errc::duplicate_package, kw);
+        ++i_;
+        if (is_symbol(peek(), '.')) return fail(errc::unexpected_token, peek());
+        std::string name;
+        if (!parse_type_name(name)) return false;
+        out_.package = std::move(name);
+        have_package_ = true;
+        return expect_symbol(';');
+    }
+
+    // A constant: identifier, signed number, one or more adjacent strings, or a {...} aggregate.
+    [[nodiscard]] constexpr bool skip_constant() {
+        const token& t = peek();
+        if (t.kind == tok::ident || t.kind == tok::integer || t.kind == tok::floating) {
+            ++i_;
+            return true;
+        }
+        if (is_symbol(t, '-') || is_symbol(t, '+')) {
+            ++i_;
+            const token& n = peek();
+            if (n.kind != tok::integer && n.kind != tok::floating && n.kind != tok::ident)
+                return fail(errc::unexpected_token, n);
+            ++i_;
+            return true;
+        }
+        if (t.kind == tok::string) {
+            while (peek().kind == tok::string) ++i_;
+            return true;
+        }
+        if (is_symbol(t, '{')) {
+            std::uint32_t open = 0;
+            do {
+                const token& k = peek();
+                if (k.kind == tok::end) return fail(errc::unexpected_end, k);
+                if (is_symbol(k, '{')) ++open;
+                if (is_symbol(k, '}')) --open;
+                ++i_;
+            } while (open != 0);
+            return true;
+        }
+        return fail(errc::unexpected_token, t);
+    }
+
+    // optionName: ident ('.' ident)* | '(' ['.'] ident ('.' ident)* ')' ('.' ident)*
+    // `name` gets the plain name, or an empty view for a custom or dotted option name.
+    [[nodiscard]] constexpr bool parse_option_name(std::string_view& name, location& loc) {
+        loc = peek().loc;
+        name = {};
+        if (is_symbol(peek(), '(')) {
+            ++i_;
+            std::string ignored;
+            if (!parse_type_name(ignored)) return false;
+            if (!expect_symbol(')')) return false;
+        } else {
+            if (!expect_ident(name)) return false;
+        }
+        while (is_symbol(peek(), '.')) {
+            ++i_;
+            std::string_view part;
+            if (!expect_ident(part)) return false;
+            name = {};
+        }
+        return true;
+    }
+
+    // `option name = constant;` at file, message, enum, service or rpc level. Options that
+    // change the wire format are refused; the rest carry no wire meaning and are skipped.
+    [[nodiscard]] constexpr bool parse_option(level lv, bool* allow_alias = nullptr) {
+        ++i_;  // 'option'
+        const token& name_tok = peek();
+        std::string_view name;
+        location loc{};
+        if (!parse_option_name(name, loc)) return false;
+        if (name.starts_with("features")) return fail_at(errc::unsupported_editions, loc, name_tok.text);
+        if (lv == level::message && (name == "message_set_wire_format" || name == "map_entry"))
+            return fail_at(errc::unsupported_option, loc, name_tok.text);
+        if (!expect_symbol('=')) return false;
+        const token& value = peek();
+        if (lv == level::enumeration && name == "allow_alias") {
+            if (!is_word(value, "true") && !is_word(value, "false"))
+                return fail(errc::unexpected_token, value);
+            if (allow_alias != nullptr) *allow_alias = is_word(value, "true");
+        }
+        if (!skip_constant()) return false;
+        return expect_symbol(';');
+    }
+
+    // '[' option (',' option)* ']' on a field or enum value. Only `packed` changes the wire
+    // format; `default` is proto2 only.
+    [[nodiscard]] constexpr bool parse_field_options(field& f) {
+        ++i_;  // '['
+        for (;;) {
+            const token& name_tok = peek();
+            std::string_view name;
+            location loc{};
+            if (!parse_option_name(name, loc)) return false;
+            if (name == "default") return fail_at(errc::unsupported_option, loc, name_tok.text);
+            if (name.starts_with("features")) return fail_at(errc::unsupported_editions, loc, name_tok.text);
+            if (!expect_symbol('=')) return false;
+            const token& value = peek();
+            if (name == "packed") {
+                if (is_word(value, "true")) {
+                    f.packed_option = 1;
+                } else if (is_word(value, "false")) {
+                    f.packed_option = 0;
+                } else {
+                    return fail(errc::unexpected_token, value);
+                }
+            }
+            if (!skip_constant()) return false;
+            if (is_symbol(peek(), ',')) {
+                ++i_;
+                continue;
+            }
+            return expect_symbol(']');
+        }
+    }
+
+    [[nodiscard]] constexpr bool read_reserved_bound(std::int64_t& v, bool is_enum) {
+        const std::int64_t max_value = is_enum ? 2147483647 : std::int64_t{max_field_number};
+        bool negative = false;
+        if (is_enum && is_symbol(peek(), '-')) {
+            negative = true;
+            ++i_;
+        }
+        const token& t = peek();
+        std::uint64_t u = 0;
+        if (!expect_integer(u)) return false;
+        if (u > static_cast<std::uint64_t>(max_value) + (negative ? 1u : 0u))
+            return fail_at(is_enum ? errc::enum_value_out_of_range : errc::field_number_out_of_range, t.loc,
+                           t.text);
+        v = negative ? -static_cast<std::int64_t>(u) : static_cast<std::int64_t>(u);
+        return true;
+    }
+
+    // reserved 1, 2, 9 to 11, 40 to max;   or   reserved "a", "b";
+    [[nodiscard]] constexpr bool parse_reserved(std::vector<reserved_range>& ranges,
+                                                std::vector<std::string_view>& names, bool is_enum) {
+        ++i_;  // 'reserved'
+        if (peek().kind == tok::string) {
+            for (;;) {
+                const token& s = peek();
+                if (s.kind != tok::string) return fail(errc::expected_string, s);
+                names.push_back(s.text);
+                ++i_;
+                if (!is_symbol(peek(), ',')) break;
+                ++i_;
+            }
+            return expect_symbol(';');
+        }
+        for (;;) {
+            const token& first = peek();
+            reserved_range r{};
+            if (!read_reserved_bound(r.lo, is_enum)) return false;
+            r.hi = r.lo;
+            if (is_word(peek(), "to")) {
+                ++i_;
+                if (is_word(peek(), "max")) {
+                    r.hi = is_enum ? 2147483647 : std::int64_t{max_field_number};
+                    ++i_;
+                } else if (!read_reserved_bound(r.hi, is_enum)) {
+                    return false;
+                }
+            }
+            if (r.lo > r.hi) return fail_at(errc::bad_reserved_range, first.loc, first.text);
+            ranges.push_back(r);
+            if (!is_symbol(peek(), ',')) break;
+            ++i_;
+        }
+        return expect_symbol(';');
+    }
+
+    [[nodiscard]] constexpr bool parse_field(std::uint32_t msg, bool repeated) {
+        field f{};
+        f.repeated = repeated;
+        const token& type_tok = peek();
+        if (is_word(type_tok, "group")) return fail(errc::unsupported_group, type_tok);
+        if (type_tok.kind == tok::ident && find_scalar(type_tok.text, f.type)) {
+            f.kind = field_kind::scalar;
+            ++i_;
+        } else {
+            f.kind = field_kind::message;  // provisional; resolution may make it an enum
+            if (!parse_type_name(f.type_name)) return false;
+        }
+        const token& name_tok = peek();
+        if (!expect_ident(f.name)) return false;
+        f.loc = name_tok.loc;
+        if (!expect_symbol('=')) return false;
+        const token& num_tok = peek();
+        std::uint64_t number = 0;
+        if (!expect_integer(number)) return false;
+        if (number == 0 || number > max_field_number)
+            return fail_at(errc::field_number_out_of_range, num_tok.loc, num_tok.text);
+        f.number = static_cast<std::uint32_t>(number);
+        if (is_symbol(peek(), '[') && !parse_field_options(f)) return false;
+        if (!expect_symbol(';')) return false;
+        out_.messages[msg].fields.push_back(std::move(f));
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool parse_message_item(std::uint32_t index, const std::string& local) {
+        const token& t = peek();
+        if (is_symbol(t, ';')) {
+            ++i_;
+            return true;
+        }
+        if (is_word(t, "message")) return parse_message(index, local);
+        if (is_word(t, "enum")) return parse_enum(index, local);
+        if (is_word(t, "reserved"))
+            return parse_reserved(out_.messages[index].reserved_ranges, out_.messages[index].reserved_names,
+                                  false);
+        if (is_word(t, "option")) return parse_option(level::message);
+        if (is_word(t, "oneof")) return fail(errc::unsupported_oneof, t);
+        if (is_word(t, "map") && is_symbol(peek(1), '<')) return fail(errc::unsupported_map, t);
+        if (is_word(t, "optional")) return fail(errc::unsupported_optional, t);
+        if (is_word(t, "required")) return fail(errc::unsupported_label, t);
+        if (is_word(t, "extensions") || is_word(t, "extend")) return fail(errc::unsupported_extensions, t);
+        if (is_word(t, "repeated")) {
+            ++i_;
+            return parse_field(index, true);
+        }
+        return parse_field(index, false);
+    }
+
+    [[nodiscard]] constexpr bool parse_message(std::uint32_t parent, std::string_view scope) {
+        const token& kw = peek();
+        ++i_;  // 'message'
+        if (depth_ >= max_nesting) return fail(errc::nesting_too_deep, kw);
+        std::string_view name;
+        const token& name_tok = peek();
+        if (!expect_ident(name)) return false;
+        if (!expect_symbol('{')) return false;
+        const auto index = static_cast<std::uint32_t>(out_.messages.size());
+        message m{};
+        m.name = name;
+        m.full_name = scope.empty() ? std::string(name) : std::string(scope) + "." + std::string(name);
+        m.parent = parent;
+        m.loc = name_tok.loc;
+        out_.messages.push_back(std::move(m));
+        const std::string local = out_.messages[index].full_name;
+        ++depth_;
+        for (;;) {
+            const token& t = peek();
+            if (t.kind == tok::end) return fail(errc::unexpected_end, t);
+            if (is_symbol(t, '}')) {
+                ++i_;
+                break;
+            }
+            if (!parse_message_item(index, local)) return false;
+        }
+        --depth_;
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool parse_enum_value(enumeration& e) {
+        const token& t = peek();
+        enum_value v{};
+        v.loc = t.loc;
+        if (!expect_ident(v.name)) return false;
+        if (!expect_symbol('=')) return false;
+        bool negative = false;
+        if (is_symbol(peek(), '-')) {
+            negative = true;
+            ++i_;
+        }
+        const token& num_tok = peek();
+        std::uint64_t u = 0;
+        if (!expect_integer(u)) return false;
+        if (u > (negative ? 2147483648ull : 2147483647ull))
+            return fail_at(errc::enum_value_out_of_range, num_tok.loc, num_tok.text);
+        v.number = negative ? static_cast<std::int32_t>(-static_cast<std::int64_t>(u)) : static_cast<std::int32_t>(u);
+        if (is_symbol(peek(), '[')) {
+            field ignored{};
+            if (!parse_field_options(ignored)) return false;
+            if (ignored.packed_option != -1) return fail_at(errc::unsupported_option, v.loc, v.name);
+        }
+        if (!expect_symbol(';')) return false;
+        e.values.push_back(v);
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool parse_enum(std::uint32_t parent, std::string_view scope) {
+        const token& kw = peek();
+        ++i_;  // 'enum'
+        if (depth_ >= max_nesting) return fail(errc::nesting_too_deep, kw);
+        enumeration e{};
+        const token& name_tok = peek();
+        if (!expect_ident(e.name)) return false;
+        e.full_name = scope.empty() ? std::string(e.name) : std::string(scope) + "." + std::string(e.name);
+        e.parent = parent;
+        e.loc = name_tok.loc;
+        if (!expect_symbol('{')) return false;
+        for (;;) {
+            const token& t = peek();
+            if (t.kind == tok::end) return fail(errc::unexpected_end, t);
+            if (is_symbol(t, '}')) {
+                ++i_;
+                break;
+            }
+            if (is_symbol(t, ';')) {
+                ++i_;
+            } else if (is_word(t, "option")) {
+                if (!parse_option(level::enumeration, &e.allow_alias)) return false;
+            } else if (is_word(t, "reserved")) {
+                if (!parse_reserved(e.reserved_ranges, e.reserved_names, true)) return false;
+            } else if (!parse_enum_value(e)) {
+                return false;
+            }
+        }
+        out_.enums.push_back(std::move(e));
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool parse_rpc_type(std::string& name, location& loc) {
+        if (!expect_symbol('(')) return false;
+        const token& t = peek();
+        if (is_word(t, "stream") && (peek(1).kind == tok::ident || is_symbol(peek(1), '.')))
+            return fail(errc::unsupported_streaming, t);
+        loc = t.loc;
+        if (!parse_type_name(name)) return false;
+        return expect_symbol(')');
+    }
+
+    [[nodiscard]] constexpr bool parse_rpc(service& s) {
+        ++i_;  // 'rpc'
+        rpc r{};
+        r.loc = peek().loc;
+        if (!expect_ident(r.name)) return false;
+        if (!parse_rpc_type(r.request_name, r.request_loc)) return false;
+        const token& ret = peek();
+        if (!is_word(ret, "returns")) return fail(errc::unexpected_token, ret);
+        ++i_;
+        if (!parse_rpc_type(r.response_name, r.response_loc)) return false;
+        if (is_symbol(peek(), '{')) {
+            ++i_;
+            for (;;) {
+                const token& b = peek();
+                if (b.kind == tok::end) return fail(errc::unexpected_end, b);
+                if (is_symbol(b, '}')) {
+                    ++i_;
+                    break;
+                }
+                if (is_symbol(b, ';')) {
+                    ++i_;
+                } else if (is_word(b, "option")) {
+                    if (!parse_option(level::rpc)) return false;
+                } else {
+                    return fail(errc::unexpected_token, b);
+                }
+            }
+        } else if (!expect_symbol(';')) {
+            return false;
+        }
+        s.rpcs.push_back(std::move(r));
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool parse_service() {
+        ++i_;  // 'service'
+        service s{};
+        const token& name_tok = peek();
+        if (!expect_ident(s.name)) return false;
+        s.full_name = std::string(s.name);
+        s.loc = name_tok.loc;
+        if (!expect_symbol('{')) return false;
+        for (;;) {
+            const token& t = peek();
+            if (t.kind == tok::end) return fail(errc::unexpected_end, t);
+            if (is_symbol(t, '}')) {
+                ++i_;
+                break;
+            }
+            if (is_symbol(t, ';')) {
+                ++i_;
+            } else if (is_word(t, "option")) {
+                if (!parse_option(level::service)) return false;
+            } else if (is_word(t, "rpc")) {
+                if (!parse_rpc(s)) return false;
+            } else {
+                return fail(errc::unexpected_token, t);
+            }
+        }
+        out_.services.push_back(std::move(s));
+        return true;
+    }
+};
+
+// ---------------------------------------------------------------------------------------------
+// Semantic checks
+
+struct name_entry {
+    std::string_view full;                  // views a full_name string owned by the file
+    field_kind kind = field_kind::message;  // enumeration or message; scalar marks a service
+    std::uint32_t index = npos;
+    location loc{};
+};
+
+[[nodiscard]] constexpr bool in_ranges(const std::vector<reserved_range>& rs, std::int64_t v) noexcept {
+    for (const auto& r : rs)
+        if (v >= r.lo && v <= r.hi) return true;
+    return false;
+}
+
+[[nodiscard]] constexpr bool contains(const std::vector<std::string_view>& names, std::string_view n) noexcept {
+    for (const auto& x : names)
+        if (x == n) return true;
+    return false;
+}
+
+class checker {
+public:
+    constexpr explicit checker(file& f) : f_(f) {}
+
+    [[nodiscard]] constexpr bool run() {
+        qualify();
+        return check_definitions() && check_messages() && check_enums() && resolve() && check_packed() &&
+               order_messages();
+    }
+
+    [[nodiscard]] constexpr const error& failure() const noexcept { return err_; }
+
+private:
+    file& f_;
+    error err_{};
+    std::vector<name_entry> names_;  // sorted by full name
+
+    constexpr bool fail(errc code, location loc, std::string_view token) {
+        err_ = error{code, loc, token};
+        return false;
+    }
+
+    constexpr void qualify() {
+        if (f_.package.empty()) return;
+        const std::string prefix = f_.package + ".";
+        for (auto& m : f_.messages) m.full_name.insert(0, prefix);
+        for (auto& e : f_.enums) e.full_name.insert(0, prefix);
+        for (auto& s : f_.services) s.full_name.insert(0, prefix);
+    }
+
+    [[nodiscard]] constexpr bool check_definitions() {
+        names_.reserve(f_.messages.size() + f_.enums.size() + f_.services.size());
+        for (std::size_t i = 0; i < f_.messages.size(); ++i)
+            names_.push_back(
+                {f_.messages[i].full_name, field_kind::message, static_cast<std::uint32_t>(i), f_.messages[i].loc});
+        for (std::size_t i = 0; i < f_.enums.size(); ++i)
+            names_.push_back(
+                {f_.enums[i].full_name, field_kind::enumeration, static_cast<std::uint32_t>(i), f_.enums[i].loc});
+        for (std::size_t i = 0; i < f_.services.size(); ++i)
+            names_.push_back(
+                {f_.services[i].full_name, field_kind::scalar, static_cast<std::uint32_t>(i), f_.services[i].loc});
+        std::sort(names_.begin(), names_.end(), [](const name_entry& a, const name_entry& b) {
+            if (a.full != b.full) return a.full < b.full;
+            if (a.loc.line != b.loc.line) return a.loc.line < b.loc.line;
+            return a.loc.column < b.loc.column;
+        });
+        for (std::size_t i = 1; i < names_.size(); ++i) {
+            if (names_[i].full == names_[i - 1].full) {
+                const std::string_view full = names_[i].full;
+                const auto dot = full.rfind('.');
+                return fail(errc::duplicate_definition, names_[i].loc,
+                            dot == std::string_view::npos ? full : full.substr(dot + 1));
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool check_message(const message& m,
+                                               std::vector<std::pair<std::uint32_t, std::uint32_t>>& numbers,
+                                               std::vector<std::pair<std::string_view, std::uint32_t>>& names) {
+        numbers.clear();
+        names.clear();
+        for (std::uint32_t k = 0; k < m.fields.size(); ++k) {
+            const field& fd = m.fields[k];
+            if (fd.number >= first_implementation_number && fd.number <= last_implementation_number)
+                return fail(errc::field_number_in_implementation_range, fd.loc, fd.name);
+            if (in_ranges(m.reserved_ranges, fd.number)) return fail(errc::field_number_reserved, fd.loc, fd.name);
+            if (contains(m.reserved_names, fd.name)) return fail(errc::field_name_reserved, fd.loc, fd.name);
+            numbers.emplace_back(fd.number, k);
+            names.emplace_back(fd.name, k);
+        }
+        std::sort(numbers.begin(), numbers.end());
+        for (std::size_t k = 1; k < numbers.size(); ++k) {
+            if (numbers[k].first == numbers[k - 1].first) {
+                const field& fd = m.fields[std::max(numbers[k].second, numbers[k - 1].second)];
+                return fail(errc::duplicate_field_number, fd.loc, fd.name);
+            }
+        }
+        std::sort(names.begin(), names.end());
+        for (std::size_t k = 1; k < names.size(); ++k) {
+            if (names[k].first == names[k - 1].first) {
+                const field& fd = m.fields[std::max(names[k].second, names[k - 1].second)];
+                return fail(errc::duplicate_field_name, fd.loc, fd.name);
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool check_messages() {
+        std::vector<std::pair<std::uint32_t, std::uint32_t>> numbers;
+        std::vector<std::pair<std::string_view, std::uint32_t>> names;
+        for (const auto& m : f_.messages)
+            if (!check_message(m, numbers, names)) return false;
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool check_enums() {
+        for (const auto& e : f_.enums) {
+            if (e.values.empty()) return fail(errc::empty_enum, e.loc, e.name);
+            if (e.values.front().number != 0)
+                return fail(errc::enum_first_value_not_zero, e.values.front().loc, e.values.front().name);
+            for (std::size_t a = 0; a < e.values.size(); ++a) {
+                const enum_value& v = e.values[a];
+                if (in_ranges(e.reserved_ranges, v.number)) return fail(errc::field_number_reserved, v.loc, v.name);
+                if (contains(e.reserved_names, v.name)) return fail(errc::field_name_reserved, v.loc, v.name);
+                for (std::size_t b = 0; b < a; ++b) {
+                    if (e.values[b].name == v.name) return fail(errc::duplicate_enum_value_name, v.loc, v.name);
+                    if (e.values[b].number == v.number && !e.allow_alias)
+                        return fail(errc::enum_value_alias, v.loc, v.name);
+                }
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr const name_entry* lookup(std::string_view full) const noexcept {
+        const auto it = std::lower_bound(names_.begin(), names_.end(), full,
+                                         [](const name_entry& e, std::string_view k) { return e.full < k; });
+        if (it == names_.end() || it->full != full) return nullptr;
+        return &*it;
+    }
+
+    // Protobuf scoping: a relative name is searched from the innermost scope outward; a name
+    // with a leading dot is fully qualified. Services are never a type.
+    [[nodiscard]] constexpr const name_entry* resolve_name(std::string_view scope, std::string_view name) const {
+        if (name.starts_with('.')) {
+            const name_entry* e = lookup(name.substr(1));
+            return e != nullptr && e->kind != field_kind::scalar ? e : nullptr;
+        }
+        std::string candidate;
+        for (;;) {
+            candidate.clear();
+            if (!scope.empty()) {
+                candidate.append(scope);
+                candidate.push_back('.');
+            }
+            candidate.append(name);
+            if (const name_entry* e = lookup(candidate); e != nullptr && e->kind != field_kind::scalar) return e;
+            if (scope.empty()) return nullptr;
+            const auto dot = scope.rfind('.');
+            scope = dot == std::string_view::npos ? std::string_view{} : scope.substr(0, dot);
+        }
+    }
+
+    [[nodiscard]] constexpr bool resolve() {
+        for (auto& m : f_.messages) {
+            const std::string_view scope = m.full_name;
+            for (auto& fd : m.fields) {
+                if (fd.type_name.empty()) continue;
+                const name_entry* e = resolve_name(scope, fd.type_name);
+                if (e == nullptr) return fail(errc::unknown_type, fd.loc, fd.name);
+                fd.kind = e->kind;
+                fd.type_index = e->index;
+            }
+        }
+        for (auto& s : f_.services) {
+            for (auto& r : s.rpcs) {
+                const name_entry* q = resolve_name(f_.package, r.request_name);
+                if (q == nullptr) return fail(errc::unknown_type, r.request_loc, r.name);
+                if (q->kind != field_kind::message) return fail(errc::not_a_message_type, r.request_loc, r.name);
+                const name_entry* p = resolve_name(f_.package, r.response_name);
+                if (p == nullptr) return fail(errc::unknown_type, r.response_loc, r.name);
+                if (p->kind != field_kind::message) return fail(errc::not_a_message_type, r.response_loc, r.name);
+                r.request = q->index;
+                r.response = p->index;
+            }
+        }
+        return true;
+    }
+
+    [[nodiscard]] constexpr bool check_packed() {
+        for (auto& m : f_.messages) {
+            for (auto& fd : m.fields) {
+                const bool packable =
+                    fd.kind == field_kind::enumeration || (fd.kind == field_kind::scalar && is_packable(fd.type));
+                if (fd.packed_option == 1 && !(fd.repeated && packable))
+                    return fail(errc::packed_on_non_packable, fd.loc, fd.name);
+                fd.packed = fd.repeated && packable && fd.packed_option != 0;
+            }
+        }
+        return true;
+    }
+
+    // Depth-first post-order over message-typed fields: dependencies come first. A field that
+    // reaches a message still on the stack closes a cycle.
+    [[nodiscard]] constexpr bool order_messages() {
+        const std::size_t n = f_.messages.size();
+        std::vector<std::uint8_t> state(n, 0);  // 0 new, 1 on stack, 2 done
+        struct frame {
+            std::uint32_t msg;
+            std::uint32_t next_field;
+        };
+        std::vector<frame> stack;
+        f_.definition_order.reserve(n);
+        for (std::uint32_t root = 0; root < n; ++root) {
+            if (state[root] != 0) continue;
+            stack.push_back({root, 0});
+            state[root] = 1;
+            while (!stack.empty()) {
+                frame& top = stack.back();
+                const message& m = f_.messages[top.msg];
+                if (top.next_field == m.fields.size()) {
+                    state[top.msg] = 2;
+                    f_.definition_order.push_back(top.msg);
+                    stack.pop_back();
+                    continue;
+                }
+                const field& fd = m.fields[top.next_field++];
+                if (fd.kind != field_kind::message) continue;
+                if (state[fd.type_index] == 1) return fail(errc::recursive_message, fd.loc, fd.name);
+                if (state[fd.type_index] == 0) {
+                    state[fd.type_index] = 1;
+                    stack.push_back({fd.type_index, 0});
+                }
+            }
+        }
+        return true;
+    }
+};
+
+}  // namespace detail
+
+// Parses and checks a proto3 schema. On success every type reference is resolved and
+// `definition_order` lists messages with their dependencies first.
+[[nodiscard]] constexpr std::expected<file, error> parse(std::string_view source) {
+    auto toks = tokenize(source);
+    if (!toks) return std::unexpected(toks.error());
+    detail::parser p(std::move(*toks));
+    if (!p.parse_file()) return std::unexpected(p.failure());
+    file f = std::move(p.result());
+    detail::checker c(f);
+    if (!c.run()) return std::unexpected(c.failure());
+    return f;
+}
+
+}  // namespace tep::schema
