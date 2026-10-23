@@ -122,26 +122,25 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Laptop requests
 
-None run. The coordinator batches these and asks Alex for the hours.
+The coordinator batches these and asks Alex for the hours. No request has final commands yet;
+rows 2 and 3 get them when the schema generator's G_P build and the arms exist.
 
-1. Ready now. Read the GCC version on `lap-linux` (`g++ --version`, `pacman -Q gcc`) and compare
-   it with the image's exact package `gcc 16.2.1+r23+gd564253eb6c8-1`; run the `define_aggregate`
-   probe; run F1's reproduction. The operation counts, the ladder ceilings and F1 transfer only if
-   the build is identical.
-   Probe: `probes/define_aggregate_probe.cpp`. From the repository root:
-   `g++ -std=c++26 -freflection probes/define_aggregate_probe.cpp -o /tmp/define_aggregate_probe`
-   then `/tmp/define_aggregate_probe`. Expected: no diagnostics, the line
-   `define_aggregate: ok, __cpp_impl_reflection 202603`, exit status 0 (as on the image's GCC
-   16.2.1 and MinGW-w64 GCC 16.2.0, 2026-10-24). A compile error means this gcc cannot build the
-   reflection layer.
-   Arch. Under 5 minutes. Basis: two commands and two compiles of a few lines.
-2. Not ready (needs the schema generator, the pinned protobuf and the G_P build). Compile-curve
-   pilot: the smallest and largest size of each shape and generator, 3 builds each, 24 builds.
-   Arch. No measured basis; ctpb's laptop retake (another compiler and implementation) took 2 to
-   9 s per build at 5 to 100 fields, which bounds nothing at 4096 fields.
-3. Not ready (needs the transport and the arms). End-to-end pilot: window length of a gRPC
-   window and the saturating load, per arm. Arch first. No measured basis for gRPC windows; the
-   lab's closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows).
+1. Done 2026-10-24 on the laptop's Arch: jobs `a1-p5-f1` and `a1-p5-define-aggregate`, both exit
+   0 (archive `C:/Users/alext/lab/laptop-archive/gap1-a-q4-visit-a1-c0eb9960/`, sha256 files
+   match). Arch's gcc is `16.2.1+r23+gd564253eb6c8-1`, the image's exact package, so the operation
+   counts, the ladder ceilings and F1 transfer to the laptop. F1 reproduced: correct at `-O0`,
+   "f literal=3" and "g literal=3" at `-O1` and `-O2`. The probe
+   (`probes/define_aggregate_probe.cpp` at c9d22bf) printed the expected line.
+2. Not ready (needs the pinned protobuf and the G_P build). Compile-curve pilot: the smallest and
+   largest size of each shape and generator, 3 builds each, 24 builds. Arch. No measured basis;
+   ctpb's laptop retake (another compiler and implementation) took 2 to 9 s per build at 5 to 100
+   fields, which bounds nothing at 4096 fields. Plain: build the smallest and largest test
+   schemas with both generators a few times, to learn how long one build takes.
+3. Not ready (needs the transport and the arms). End-to-end pilot: the length of a gRPC window and
+   the saturating load, per arm. Arch first. No measured basis for gRPC windows; the lab's
+   closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
+   load test against each server variant, to learn how long one window takes and which load
+   saturates the server.
 
 ## Lab requests
 
@@ -151,7 +150,7 @@ None run. The coordinator batches these and asks Alex for the hours.
 2. Pin Go 1.27.2 (Alex, D2: the same as P4 and P7) and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
    through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
 3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
-4. The laptop's Windows needs the same MinGW-w64 GCC 16.2.0 zip: copy it from the desktop's
+4. Done 2026-10-24 (job `p5-mingw-w`, exit 0, per the coordinator). It was: copy the zip from the desktop's
    `C:\Users\alext\opt\_dl\p5-winlibs-gcc16-r3`, check the sha256 on the laptop, unpack to the
    same path, and add a row to `lab/laptop/versions.md` (a lab tooling change, the coordinator's).
 
