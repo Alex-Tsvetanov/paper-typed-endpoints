@@ -163,16 +163,16 @@ inline constexpr std::string_view cpp_keywords[] = {
 };
 
 // A field named like a C++ keyword gets a trailing underscore, as protoc's C++ output does.
-consteval std::string member_name(std::string_view n) {
-    if (std::binary_search(std::begin(cpp_keywords), std::end(cpp_keywords), n)) return std::string(n) + "_";
-    return std::string(n);
+consteval bool is_keyword(std::string_view n) {
+    return std::binary_search(std::begin(cpp_keywords), std::end(cpp_keywords), n);
 }
 
 }  // namespace detail
 
 // Static, structural tables built once per schema. Indices match schema::file.
 struct field_meta {
-    const char* member;  // C++ member name
+    std::uint32_t name_offset;  // the C++ member name in schema_tables::names
+    std::uint32_t name_size;
     std::uint32_t number;
     schema::field_kind kind;
     schema::scalar type;
@@ -212,6 +212,7 @@ struct service_meta {
 };
 
 struct schema_tables {
+    const char* names;  // every C++ member name, concatenated
     std::span<const message_meta> messages;
     std::span<const field_meta> fields;
     std::span<const std::uint32_t> definition_order;
@@ -223,22 +224,6 @@ struct schema_tables {
 
 namespace detail {
 
-// Escaping can only collide when a field is named like a keyword plus an underscore (`class`
-// and `class_`). Sorting keeps this O(n log n) in constant evaluation.
-consteval void check_member_names(const schema::message& m, const std::vector<std::string>& members) {
-    std::vector<std::pair<std::string_view, std::size_t>> sorted;
-    sorted.reserve(members.size());
-    for (std::size_t k = 0; k < members.size(); ++k) sorted.emplace_back(members[k], k);
-    std::sort(sorted.begin(), sorted.end());
-    for (std::size_t k = 1; k < sorted.size(); ++k) {
-        if (sorted[k].first != sorted[k - 1].first) continue;
-        const schema::field& fd = m.fields[std::max(sorted[k].second, sorted[k - 1].second)];
-        fail("tep: schema error at line " + to_dec(fd.loc.line) + ", column " + to_dec(fd.loc.column) +
-             ": field name collides with another after C++ keyword escaping ('" + std::string(sorted[k].first) +
-             "')");
-    }
-}
-
 consteval schema_tables build_tables(std::string_view text) {
     auto parsed = schema::parse(text);
     if (!parsed) fail(format_error(parsed.error()));
@@ -246,18 +231,20 @@ consteval schema_tables build_tables(std::string_view text) {
 
     std::vector<message_meta> messages;
     std::vector<field_meta> fields;
-    std::vector<std::string> members;
+    // Member names go into one static string. Escaping a keyword cannot make two names equal:
+    // the only collision would be `x` next to `x_`, and the proto3 JSON-name check rejects that
+    // pair (both have the JSON name x) before this point.
+    std::string names;
     for (const auto& m : f.messages) {
         const std::size_t first = fields.size();
         messages.push_back({std::define_static_string(m.full_name), static_cast<std::uint32_t>(first),
                             static_cast<std::uint32_t>(m.fields.size())});
-        members.clear();
-        for (const auto& fd : m.fields) members.push_back(member_name(fd.name));
-        check_member_names(m, members);
-        for (std::size_t k = 0; k < m.fields.size(); ++k) {
-            const schema::field& fd = m.fields[k];
-            fields.push_back({std::define_static_string(members[k]), fd.number, fd.kind, fd.type, fd.type_index,
-                              fd.repeated, fd.packed});
+        for (const auto& fd : m.fields) {
+            const auto offset = static_cast<std::uint32_t>(names.size());
+            names.append(fd.name);
+            if (is_keyword(fd.name)) names.push_back('_');
+            fields.push_back({offset, static_cast<std::uint32_t>(names.size()) - offset, fd.number, fd.kind, fd.type,
+                              fd.type_index, fd.repeated, fd.packed});
         }
     }
     std::vector<enum_meta> enums;
@@ -279,7 +266,7 @@ consteval schema_tables build_tables(std::string_view text) {
         }
     }
     return schema_tables{
-        std::define_static_array(messages), std::define_static_array(fields),
+        std::define_static_string(names),   std::define_static_array(messages), std::define_static_array(fields),
         std::define_static_array(f.definition_order), std::define_static_array(enums),
         std::define_static_array(values),   std::define_static_array(services),
         std::define_static_array(rpcs),
@@ -290,6 +277,11 @@ consteval schema_tables build_tables(std::string_view text) {
 
 template <schema_source Schema>
 inline constexpr schema_tables tables = detail::build_tables(std::string_view(Schema::text));
+
+// The C++ member name of a field.
+[[nodiscard]] constexpr std::string_view member_name(const schema_tables& t, const field_meta& f) noexcept {
+    return {t.names + f.name_offset, f.name_size};
+}
 
 namespace detail {
 
@@ -384,8 +376,7 @@ consteval void define_messages() {
         specs.reserve(m.field_count);
         for (std::uint32_t k = 0; k < m.field_count; ++k) {
             const field_meta& f = t.fields[m.first_field + k];
-            specs.push_back(
-                std::meta::data_member_spec(detail::member_type<Schema>(f), {.name = std::string_view(f.member)}));
+            specs.push_back(std::meta::data_member_spec(detail::member_type<Schema>(f), {.name = member_name(t, f)}));
         }
         (void)std::meta::define_aggregate(detail::message_type<Schema>(idx), specs);
     }

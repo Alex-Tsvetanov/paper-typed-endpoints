@@ -61,7 +61,8 @@ consteval bool names_match_schema() {
     const auto& m = tep::tables<everything_proto>.messages[tep::message_traits<Everything>::index];
     if (members.size() != m.field_count) return false;
     for (std::size_t k = 0; k < members.size(); ++k)
-        if (std::meta::identifier_of(members[k]) != std::string_view(tep::tables<everything_proto>.fields[m.first_field + k].member))
+        if (std::meta::identifier_of(members[k]) !=
+            tep::member_name(tep::tables<everything_proto>, tep::tables<everything_proto>.fields[m.first_field + k]))
             return false;
     return true;
 }

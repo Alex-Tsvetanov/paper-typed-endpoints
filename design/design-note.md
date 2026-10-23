@@ -104,10 +104,18 @@ Schema generator `bench/gen_schema.py --shape S --n N`, deterministic:
   message type, and one service with one rpc per message.
 
 Sizes: N in {16, 32, 64, 128, 256, 512, 1024, 2048, 4096}: 9 sizes x 2 shapes x 2 generators =
-36 cells. The ladder is fixed after a desktop pass/fail probe (does each cell compile under
-GCC's default constant-evaluation limits; no timing) and the laptop pilot. The primary curve uses
-default compiler limits, since users do; above the largest size that compiles under defaults, a
-declared secondary curve raises the limits.
+36 cells. The primary curve uses default compiler limits, since users do; above the largest
+size that compiles under defaults, a declared secondary curve raises `-fconstexpr-ops-limit`
+(value fixed in the frozen design). The largest default-limit size per shape is itself a result.
+
+Default-limit ceiling, desktop pass/fail probe (no timing), current code: `wide` passes 1024 and
+fails 2048; `many` passes 512 and fails 1024. GCC's limit is 33,554,432 operations per constant
+evaluation, and the schema tables are one evaluation. Operation counts from bisecting the limit
+(`bench/constexpr_ops.sh`; deterministic for a given compiler, not a timing) guide the
+engineering: about 22k operations per field for `wide` and 36k for `many`, down from 72k at the
+first commit. Reaching 4096 fields under default limits needs about 8k per field; the next
+targets are the per-message and per-rpc costs. The ladder is fixed after this engineering and
+the laptop pilot.
 
 Replicates (D9): one contrast (G_R against G_P) per shape and size, m = 18, Holm at alpha 0.05:
 alpha/m = 0.00278, so R = 9 suffices (2^-9 = 0.00195); take R = 10. Order interleaved

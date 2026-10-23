@@ -325,99 +325,112 @@ namespace detail {
 
 }  // namespace detail
 
-// Splits the whole source into tokens. One pass; tokens view the source.
+// Splits the whole source into tokens. One pass; tokens view the source. It walks pointers and
+// derives a column from the start of the line, because constant evaluation charges for every
+// checked index and every call: this keeps the cost per character small.
 [[nodiscard]] constexpr std::expected<std::vector<token>, error> tokenize(std::string_view src) {
     std::vector<token> out;
-    std::size_t i = 0;
-    location loc{};
-    const auto advance = [&](std::size_t n) {
-        for (std::size_t k = 0; k < n && i < src.size(); ++k, ++i) {
-            if (src[i] == '\n') {
-                ++loc.line;
-                loc.column = 1;
-            } else {
-                ++loc.column;
-            }
-        }
+    out.reserve(src.size() / 4 + 1);
+    const char* const end = src.data() + src.size();
+    const char* p = src.data();
+    const char* line_start = p;
+    std::uint32_t line = 1;
+    const auto loc_at = [&](const char* q) {
+        return location{line, static_cast<std::uint32_t>(q - line_start) + 1};
     };
-    while (i < src.size()) {
-        const char c = src[i];
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v') {
-            advance(1);
+    const auto view = [](const char* a, const char* b) {
+        return std::string_view(a, static_cast<std::size_t>(b - a));
+    };
+    while (p != end) {
+        const char c = *p;
+        if (c == '\n') {
+            ++p;
+            ++line;
+            line_start = p;
             continue;
         }
-        if (c == '/' && i + 1 < src.size() && src[i + 1] == '/') {
-            while (i < src.size() && src[i] != '\n') advance(1);
+        if (c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v') {
+            ++p;
             continue;
         }
-        if (c == '/' && i + 1 < src.size() && src[i + 1] == '*') {
-            const location start = loc;
-            advance(2);
+        if (c == '/' && end - p > 1 && p[1] == '/') {
+            while (p != end && *p != '\n') ++p;
+            continue;
+        }
+        if (c == '/' && end - p > 1 && p[1] == '*') {
+            const location start = loc_at(p);
+            p += 2;
             bool closed = false;
-            while (i < src.size()) {
-                if (src[i] == '*' && i + 1 < src.size() && src[i + 1] == '/') {
-                    advance(2);
+            while (p != end) {
+                if (*p == '*' && end - p > 1 && p[1] == '/') {
+                    p += 2;
                     closed = true;
                     break;
                 }
-                advance(1);
+                if (*p == '\n') {
+                    ++line;
+                    line_start = p + 1;
+                }
+                ++p;
             }
             if (!closed) return std::unexpected(error{errc::unterminated_comment, start, "/*"});
             continue;
         }
-        const location start = loc;
-        const std::size_t b = i;
+        const char* const b = p;
+        const location start = loc_at(p);
         if (detail::is_alpha(c)) {
-            while (i < src.size() && detail::is_alnum(src[i])) advance(1);
-            out.push_back({tok::ident, src.substr(b, i - b), start});
+            do {
+                ++p;
+            } while (p != end && detail::is_alnum(*p));
+            out.push_back({tok::ident, view(b, p), start});
             continue;
         }
-        if (detail::is_digit(c) || (c == '.' && i + 1 < src.size() && detail::is_digit(src[i + 1]))) {
-            const bool hex = src.size() > b + 1 && src[b] == '0' && (src[b + 1] == 'x' || src[b + 1] == 'X');
-            while (i < src.size()) {
-                const char d = src[i];
+        if (detail::is_digit(c) || (c == '.' && end - p > 1 && detail::is_digit(p[1]))) {
+            const bool hex = end - b > 1 && b[0] == '0' && (b[1] == 'x' || b[1] == 'X');
+            while (p != end) {
+                const char d = *p;
                 if (detail::is_alnum(d) || d == '.') {
-                    advance(1);
-                } else if ((d == '+' || d == '-') && !hex && (src[i - 1] == 'e' || src[i - 1] == 'E')) {
-                    advance(1);
+                    ++p;
+                } else if ((d == '+' || d == '-') && !hex && (p[-1] == 'e' || p[-1] == 'E')) {
+                    ++p;
                 } else {
                     break;
                 }
             }
-            const std::string_view text = src.substr(b, i - b);
+            const std::string_view text = view(b, p);
             out.push_back({detail::is_integer_literal(text) ? tok::integer : tok::floating, text, start});
             continue;
         }
         if (c == '"' || c == '\'') {
-            advance(1);
-            const std::size_t content = i;
+            ++p;
+            const char* const content = p;
             bool closed = false;
-            while (i < src.size()) {
-                const char d = src[i];
+            while (p != end) {
+                const char d = *p;
                 if (d == '\n') break;
                 if (d == '\\') {
-                    advance(2);
+                    p += end - p > 1 ? 2 : 1;
                     continue;
                 }
                 if (d == c) {
                     closed = true;
                     break;
                 }
-                advance(1);
+                ++p;
             }
-            if (!closed) return std::unexpected(error{errc::unterminated_string, start, src.substr(b, 1)});
-            out.push_back({tok::string, src.substr(content, i - content), start});
-            advance(1);
+            if (!closed) return std::unexpected(error{errc::unterminated_string, start, view(b, b + 1)});
+            out.push_back({tok::string, view(content, p), start});
+            ++p;
             continue;
         }
         if (detail::is_symbol_char(c)) {
-            advance(1);
-            out.push_back({tok::symbol, src.substr(b, 1), start});
+            ++p;
+            out.push_back({tok::symbol, view(b, p), start});
             continue;
         }
-        return std::unexpected(error{errc::invalid_character, start, src.substr(b, 1)});
+        return std::unexpected(error{errc::invalid_character, start, view(b, b + 1)});
     }
-    out.push_back({tok::end, {}, loc});
+    out.push_back({tok::end, {}, loc_at(p)});
     return out;
 }
 
@@ -425,6 +438,8 @@ namespace detail {
 // Parser
 
 namespace detail {
+
+using namespace std::string_view_literals;
 
 struct scalar_name {
     std::string_view name;
@@ -439,9 +454,15 @@ inline constexpr scalar_name scalar_names[] = {
     {"sfixed64", scalar::sfixed64}, {"sint32", scalar::sint32},  {"sint64", scalar::sint64},
 };
 
+// Scalar type names start with b, d, f, i, s or u; other names skip the table.
 [[nodiscard]] constexpr bool find_scalar(std::string_view n, scalar& out) noexcept {
+    if (n.empty()) return false;
+    switch (n.front()) {
+        case 'b': case 'd': case 'f': case 'i': case 's': case 'u': break;
+        default: return false;
+    }
     for (const auto& s : scalar_names) {
-        if (s.name == n) {
+        if (s.name.front() == n.front() && s.name == n) {
             out = s.type;
             return true;
         }
@@ -459,19 +480,19 @@ public:
             const token& t = peek();
             if (is_symbol(t, ';')) {
                 ++i_;
-            } else if (is_word(t, "package")) {
+            } else if (is_word(t, "package"sv)) {
                 if (!parse_package()) return false;
-            } else if (is_word(t, "import")) {
+            } else if (is_word(t, "import"sv)) {
                 return fail(errc::unsupported_import, t);
-            } else if (is_word(t, "option")) {
+            } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::file)) return false;
-            } else if (is_word(t, "message")) {
+            } else if (is_word(t, "message"sv)) {
                 if (!parse_message(npos, "")) return false;
-            } else if (is_word(t, "enum")) {
+            } else if (is_word(t, "enum"sv)) {
                 if (!parse_enum(npos, "")) return false;
-            } else if (is_word(t, "service")) {
+            } else if (is_word(t, "service"sv)) {
                 if (!parse_service()) return false;
-            } else if (is_word(t, "extend")) {
+            } else if (is_word(t, "extend"sv)) {
                 return fail(errc::unsupported_extensions, t);
             } else {
                 return fail(errc::unexpected_token, t);
@@ -560,13 +581,13 @@ private:
 
     [[nodiscard]] constexpr bool parse_syntax() {
         const token& t = peek();
-        if (is_word(t, "edition")) return fail(errc::unsupported_editions, t);
-        if (!is_word(t, "syntax")) return fail(errc::missing_syntax, t);
+        if (is_word(t, "edition"sv)) return fail(errc::unsupported_editions, t);
+        if (!is_word(t, "syntax"sv)) return fail(errc::missing_syntax, t);
         ++i_;
         if (!expect_symbol('=')) return false;
         const token& v = peek();
         if (v.kind != tok::string) return fail(errc::expected_string, v);
-        if (v.text != "proto3") return fail(errc::syntax_not_proto3, v);
+        if (v.text != "proto3"sv) return fail(errc::syntax_not_proto3, v);
         ++i_;
         return expect_symbol(';');
     }
@@ -645,21 +666,21 @@ private:
     // (message_set_wire_format, map_entry, default) are left out and so refused. A custom option
     // needs an import, which is not supported, so it is refused as protoc would refuse it.
     [[nodiscard]] static constexpr bool known_option(level lv, std::string_view name) noexcept {
-        constexpr std::string_view file_options[] = {
+        static constexpr std::string_view file_options[] = {
             "java_package", "java_outer_classname", "java_multiple_files", "java_generate_equals_and_hash",
             "java_string_check_utf8", "optimize_for", "go_package", "cc_generic_services", "java_generic_services",
             "py_generic_services", "deprecated", "cc_enable_arenas", "objc_class_prefix", "csharp_namespace",
             "swift_prefix", "php_class_prefix", "php_namespace", "php_metadata_namespace", "ruby_package"};
-        constexpr std::string_view message_options[] = {"no_standard_descriptor_accessor", "deprecated",
+        static constexpr std::string_view message_options[] = {"no_standard_descriptor_accessor", "deprecated",
                                                         "deprecated_legacy_json_field_conflicts"};
-        constexpr std::string_view field_options[] = {"ctype", "packed", "jstype", "lazy", "unverified_lazy",
+        static constexpr std::string_view field_options[] = {"ctype", "packed", "jstype", "lazy", "unverified_lazy",
                                                       "deprecated", "weak", "debug_redact", "retention", "targets",
                                                       "json_name"};
-        constexpr std::string_view enum_options[] = {"allow_alias", "deprecated",
+        static constexpr std::string_view enum_options[] = {"allow_alias", "deprecated",
                                                      "deprecated_legacy_json_field_conflicts"};
-        constexpr std::string_view enum_value_options[] = {"deprecated", "debug_redact"};
-        constexpr std::string_view service_options[] = {"deprecated"};
-        constexpr std::string_view rpc_options[] = {"deprecated", "idempotency_level"};
+        static constexpr std::string_view enum_value_options[] = {"deprecated", "debug_redact"};
+        static constexpr std::string_view service_options[] = {"deprecated"};
+        static constexpr std::string_view rpc_options[] = {"deprecated", "idempotency_level"};
         const auto in = [&](const auto& list) {
             for (const std::string_view o : list)
                 if (o == name) return true;
@@ -678,7 +699,7 @@ private:
     }
 
     [[nodiscard]] constexpr bool check_option_name(level lv, std::string_view name, location loc, bool custom) {
-        if (name.starts_with("features")) return fail_at(errc::unsupported_editions, loc, name);
+        if (name.starts_with("features"sv)) return fail_at(errc::unsupported_editions, loc, name);
         if (custom || !known_option(lv, name)) return fail_at(errc::unsupported_option, loc, name);
         return true;
     }
@@ -693,9 +714,9 @@ private:
         if (!check_option_name(lv, name, loc, custom)) return false;
         if (!expect_symbol('=')) return false;
         const token& value = peek();
-        if (lv == level::enumeration && name == "allow_alias") {
-            if (!is_word(value, "true") && !is_word(value, "false")) return fail(errc::unexpected_token, value);
-            if (allow_alias != nullptr) *allow_alias = is_word(value, "true");
+        if (lv == level::enumeration && name == "allow_alias"sv) {
+            if (!is_word(value, "true"sv) && !is_word(value, "false"sv)) return fail(errc::unexpected_token, value);
+            if (allow_alias != nullptr) *allow_alias = is_word(value, "true"sv);
         }
         if (!skip_constant()) return false;
         return expect_symbol(';');
@@ -713,11 +734,11 @@ private:
             if (!check_option_name(lv, name, loc, custom)) return false;
             if (!expect_symbol('=')) return false;
             const token& value = peek();
-            if (name == "packed") {
+            if (name == "packed"sv) {
                 if (f.packed_option != -1) return fail_at(errc::unsupported_option, loc, name);
-                if (is_word(value, "true")) {
+                if (is_word(value, "true"sv)) {
                     f.packed_option = 1;
-                } else if (is_word(value, "false")) {
+                } else if (is_word(value, "false"sv)) {
                     f.packed_option = 0;
                 } else {
                     return fail(errc::unexpected_token, value);
@@ -770,9 +791,9 @@ private:
             r.loc = peek().loc;
             if (!read_reserved_bound(r.lo, is_enum)) return false;
             r.hi = r.lo;
-            if (is_word(peek(), "to")) {
+            if (is_word(peek(), "to"sv)) {
                 ++i_;
-                if (is_word(peek(), "max")) {
+                if (is_word(peek(), "max"sv)) {
                     r.hi = is_enum ? 2147483647 : std::int64_t{max_field_number};
                     ++i_;
                 } else if (!read_reserved_bound(r.hi, is_enum)) {
@@ -792,7 +813,7 @@ private:
         field f{};
         f.repeated = repeated;
         const token& type_tok = peek();
-        if (is_word(type_tok, "group")) return fail(errc::unsupported_group, type_tok);
+        if (is_word(type_tok, "group"sv)) return fail(errc::unsupported_group, type_tok);
         f.type_loc = type_tok.loc;
         const std::size_t type_first = i_;
         if (type_tok.kind == tok::ident && find_scalar(type_tok.text, f.type)) {
@@ -827,20 +848,25 @@ private:
             ++i_;
             return true;
         }
-        if (is_word(t, "message")) return parse_message(index, local);
-        if (is_word(t, "enum")) return parse_enum(index, local);
-        if (is_word(t, "reserved"))
-            return parse_reserved(out_.messages[index].reserved_ranges, out_.messages[index].reserved_names,
-                                  false);
-        if (is_word(t, "option")) return parse_option(level::message);
-        if (is_word(t, "oneof")) return fail(errc::unsupported_oneof, t);
-        if (is_word(t, "map") && is_symbol(peek(1), '<')) return fail(errc::unsupported_map, t);
-        if (is_word(t, "optional")) return fail(errc::unsupported_optional, t);
-        if (is_word(t, "required")) return fail(errc::unsupported_label, t);
-        if (is_word(t, "extensions") || is_word(t, "extend")) return fail(errc::unsupported_extensions, t);
-        if (is_word(t, "repeated")) {
-            ++i_;
-            return parse_field(index, true);
+        // Only words starting with e, m, o or r can be keywords here. Scalar types and most type
+        // names go straight to the field, without a keyword comparison.
+        const char first = t.kind == tok::ident ? t.text.front() : '\0';
+        if (first == 'e' || first == 'm' || first == 'o' || first == 'r') {
+            if (is_word(t, "message"sv)) return parse_message(index, local);
+            if (is_word(t, "enum"sv)) return parse_enum(index, local);
+            if (is_word(t, "reserved"sv))
+                return parse_reserved(out_.messages[index].reserved_ranges, out_.messages[index].reserved_names,
+                                      false);
+            if (is_word(t, "option"sv)) return parse_option(level::message);
+            if (is_word(t, "oneof"sv)) return fail(errc::unsupported_oneof, t);
+            if (is_word(t, "map"sv) && is_symbol(peek(1), '<')) return fail(errc::unsupported_map, t);
+            if (is_word(t, "optional"sv)) return fail(errc::unsupported_optional, t);
+            if (is_word(t, "required"sv)) return fail(errc::unsupported_label, t);
+            if (is_word(t, "extensions"sv) || is_word(t, "extend"sv)) return fail(errc::unsupported_extensions, t);
+            if (is_word(t, "repeated"sv)) {
+                ++i_;
+                return parse_field(index, true);
+            }
         }
         return parse_field(index, false);
     }
@@ -921,9 +947,9 @@ private:
             }
             if (is_symbol(t, ';')) {
                 ++i_;
-            } else if (is_word(t, "option")) {
+            } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::enumeration, &e.allow_alias)) return false;
-            } else if (is_word(t, "reserved")) {
+            } else if (is_word(t, "reserved"sv)) {
                 if (!parse_reserved(e.reserved_ranges, e.reserved_names, true)) return false;
             } else if (!parse_enum_value(e)) {
                 return false;
@@ -936,7 +962,7 @@ private:
     [[nodiscard]] constexpr bool parse_rpc_type(std::string& name, location& loc) {
         if (!expect_symbol('(')) return false;
         const token& t = peek();
-        if (is_word(t, "stream") && (peek(1).kind == tok::ident || is_symbol(peek(1), '.')))
+        if (is_word(t, "stream"sv) && (peek(1).kind == tok::ident || is_symbol(peek(1), '.')))
             return fail(errc::unsupported_streaming, t);
         loc = t.loc;
         if (!parse_type_name(name)) return false;
@@ -950,7 +976,7 @@ private:
         if (!expect_ident(r.name)) return false;
         if (!parse_rpc_type(r.request_name, r.request_loc)) return false;
         const token& ret = peek();
-        if (!is_word(ret, "returns")) return fail(errc::unexpected_token, ret);
+        if (!is_word(ret, "returns"sv)) return fail(errc::unexpected_token, ret);
         ++i_;
         if (!parse_rpc_type(r.response_name, r.response_loc)) return false;
         if (is_symbol(peek(), '{')) {
@@ -964,7 +990,7 @@ private:
                 }
                 if (is_symbol(b, ';')) {
                     ++i_;
-                } else if (is_word(b, "option")) {
+                } else if (is_word(b, "option"sv)) {
                     if (!parse_option(level::rpc)) return false;
                 } else {
                     return fail(errc::unexpected_token, b);
@@ -994,9 +1020,9 @@ private:
             }
             if (is_symbol(t, ';')) {
                 ++i_;
-            } else if (is_word(t, "option")) {
+            } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::service)) return false;
-            } else if (is_word(t, "rpc")) {
+            } else if (is_word(t, "rpc"sv)) {
                 if (!parse_rpc(s)) return false;
             } else {
                 return fail(errc::unexpected_token, t);
@@ -1036,6 +1062,34 @@ struct scoped_name {
 }
 [[nodiscard]] constexpr char upper(char c) noexcept {
     return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
+}
+
+[[nodiscard]] constexpr std::uint32_t fnv1a(std::string_view s) noexcept {
+    std::uint32_t h = 2166136261u;
+    for (const char c : s) {
+        h ^= static_cast<unsigned char>(c);
+        h *= 16777619u;
+    }
+    return h;
+}
+
+// The index of the first field whose name an earlier field already has, or npos. One pass over
+// an open-addressing hash set, so the cost stays linear in constant evaluation.
+[[nodiscard]] constexpr std::uint32_t first_duplicate_name(const std::vector<field>& fields,
+                                                           std::vector<std::uint32_t>& slots) {
+    std::size_t size = 16;
+    while (size < 2 * fields.size()) size *= 2;
+    slots.assign(size, 0);
+    const std::size_t mask = size - 1;
+    for (std::uint32_t k = 0; k < fields.size(); ++k) {
+        std::size_t i = fnv1a(fields[k].name) & mask;
+        while (slots[i] != 0) {
+            if (fields[slots[i] - 1].name == fields[k].name) return k;
+            i = (i + 1) & mask;
+        }
+        slots[i] = k + 1;
+    }
+    return npos;
 }
 
 [[nodiscard]] constexpr bool in_ranges(const std::vector<reserved_range>& rs, std::int64_t v) noexcept {
@@ -1153,41 +1207,41 @@ private:
 
     [[nodiscard]] constexpr bool check_message(const message& m,
                                                std::vector<std::pair<std::uint32_t, std::uint32_t>>& numbers,
-                                               std::vector<std::pair<std::string_view, std::uint32_t>>& names) {
-        numbers.clear();
-        names.clear();
-        for (std::uint32_t k = 0; k < m.fields.size(); ++k) {
-            const field& fd = m.fields[k];
+                                               std::vector<std::uint32_t>& slots) {
+        for (const field& fd : m.fields) {
             if (fd.number >= first_implementation_number && fd.number <= last_implementation_number)
                 return fail(errc::field_number_in_implementation_range, fd.number_loc, fd.number_text);
             if (in_ranges(m.reserved_ranges, fd.number))
                 return fail(errc::field_number_reserved, fd.number_loc, fd.number_text);
             if (reserved(m.reserved_names, fd.name)) return fail(errc::field_name_reserved, fd.loc, fd.name);
-            numbers.emplace_back(fd.number, k);
-            names.emplace_back(fd.name, k);
         }
-        std::sort(numbers.begin(), numbers.end());
-        for (std::size_t k = 1; k < numbers.size(); ++k) {
-            if (numbers[k].first == numbers[k - 1].first) {
-                const field& fd = m.fields[std::max(numbers[k].second, numbers[k - 1].second)];
-                return fail(errc::duplicate_field_number, fd.number_loc, fd.number_text);
+        // Field numbers usually increase in declaration order, and then none repeats.
+        bool increasing = true;
+        for (std::size_t k = 1; k < m.fields.size() && increasing; ++k)
+            increasing = m.fields[k - 1].number < m.fields[k].number;
+        if (!increasing) {
+            numbers.clear();
+            for (std::uint32_t k = 0; k < m.fields.size(); ++k) numbers.emplace_back(m.fields[k].number, k);
+            std::sort(numbers.begin(), numbers.end());
+            for (std::size_t k = 1; k < numbers.size(); ++k) {
+                if (numbers[k].first == numbers[k - 1].first) {
+                    const field& fd = m.fields[std::max(numbers[k].second, numbers[k - 1].second)];
+                    return fail(errc::duplicate_field_number, fd.number_loc, fd.number_text);
+                }
             }
         }
-        std::sort(names.begin(), names.end());
-        for (std::size_t k = 1; k < names.size(); ++k) {
-            if (names[k].first == names[k - 1].first) {
-                const field& fd = m.fields[std::max(names[k].second, names[k - 1].second)];
-                return fail(errc::duplicate_field_name, fd.loc, fd.name);
-            }
+        if (const std::uint32_t later = first_duplicate_name(m.fields, slots); later != npos) {
+            const field& fd = m.fields[later];
+            return fail(errc::duplicate_field_name, fd.loc, fd.name);
         }
         return check_reserved(m.reserved_ranges, m.reserved_names) && check_json_names(m);
     }
 
     [[nodiscard]] constexpr bool check_messages() {
         std::vector<std::pair<std::uint32_t, std::uint32_t>> numbers;
-        std::vector<std::pair<std::string_view, std::uint32_t>> names;
+        std::vector<std::uint32_t> slots;
         for (const auto& m : f_.messages)
-            if (!check_message(m, numbers, names)) return false;
+            if (!check_message(m, numbers, slots)) return false;
         return true;
     }
 

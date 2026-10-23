@@ -35,6 +35,17 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   runtime arm selection, `bench/gen_schema.py`, grpc-go interop programs, `bench/coverage.json`.
 - Known performance items, unmeasured: nested message sizes are recomputed while writing (no
   size cache); decode dispatch is a linear chain over fields. Both wait for laptop probes.
+- Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
+  is 33,554,432 operations per evaluation, and the schema tables are one evaluation.
+  `bench/constexpr_ops.sh` bisects the limit to count a stage's operations (deterministic, not
+  timing). Whole pipeline (parse, tables, define) per field, `wide 256`: 72k at e1907b9, 52k
+  after the review fixes, 22k after two optimization passes (pointer lexer, `sv` keywords, one
+  names string, O(n) duplicate checks). `many 256`: 36k per field; each message plus rpc costs
+  about 80k more (parser and checker), the next target.
+  Desktop pass/fail ladder under default limits (`-O2`, no timing): `wide` passes 1024 and fails
+  2048 (was 256 / 512); `many` passes 512 and fails 1024 (just over: about 4 x 9.2M).
+  Target: the 4096-field ladder under default limits, or a declared secondary curve with raised
+  limits above the default ceiling (design note section 4).
 
 ## Build and test (desktop, functional only; no timing)
 
@@ -77,7 +88,12 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Repository, STATE.md, design note draft, compiler findings.
 - [x] Skeleton building; functional tests pass on Linux (container) and Windows (MSVC, portable
       layers; the reflection layer waits for Alex decides 1).
-- [ ] Code review by a fresh agent, CRITICAL and HIGH fixed.
+- [x] Code review by a fresh agent (Opus, cpp-reviewer, 2026-10-23): 1 CRITICAL, 1 HIGH, 4
+      MEDIUM, 5 LOW groups. All CRITICAL, HIGH and MEDIUM fixed, and most LOW (commit 8764052).
+      Left open: value-type checks of option values (`[deprecated = "yes"]` is accepted), `1abc`
+      lexed as one floating token, no per-request decode allocation cap beyond the 4 MiB frame
+      limit (memory amplification from repeated empty messages is bounded by sizeof(M) per two
+      input bytes, as in libprotobuf).
 - [ ] Next engineering: transport, `protoc` arm, schema generator, desktop pass/fail probe of the
       compile ladder under default GCC limits, grpc-go interop.
 
