@@ -125,9 +125,15 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 None run. The coordinator batches these and asks Alex for the hours.
 
 1. Ready now. Read the GCC version on `lap-linux` (`g++ --version`, `pacman -Q gcc`) and compare
-   it with the image's exact package `gcc 16.2.1+r23+gd564253eb6c8-1`; compile one
-   `define_aggregate` probe with `-std=c++26 -freflection`; run F1's reproduction. The operation
-   counts, the ladder ceilings and F1 transfer only if the build is identical.
+   it with the image's exact package `gcc 16.2.1+r23+gd564253eb6c8-1`; run the `define_aggregate`
+   probe; run F1's reproduction. The operation counts, the ladder ceilings and F1 transfer only if
+   the build is identical.
+   Probe: `probes/define_aggregate_probe.cpp`. From the repository root:
+   `g++ -std=c++26 -freflection probes/define_aggregate_probe.cpp -o /tmp/define_aggregate_probe`
+   then `/tmp/define_aggregate_probe`. Expected: no diagnostics, the line
+   `define_aggregate: ok, __cpp_impl_reflection 202603`, exit status 0 (as on the image's GCC
+   16.2.1 and MinGW-w64 GCC 16.2.0, 2026-10-24). A compile error means this gcc cannot build the
+   reflection layer.
    Arch. Under 5 minutes. Basis: two commands and two compiles of a few lines.
 2. Not ready (needs the schema generator, the pinned protobuf and the G_P build). Compile-curve
    pilot: the smallest and largest size of each shape and generator, 3 builds each, 24 builds.
