@@ -142,7 +142,7 @@ None run. The coordinator batches these and asks Alex for the hours.
 1. Pin one protobuf release for P5: the `protoc` binary (Linux and Windows) and the runtime source
    at the same version, downloaded into a fresh folder and checked against the release asset's
    published sha256. Needed for the `protoc` arm and to regenerate the golden vectors.
-2. Pin Go and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
+2. Pin Go 1.27.2 (Alex, D2: the same as P4 and P7) and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
    through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
 3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
 4. The laptop's Windows needs the same MinGW-w64 GCC 16.2.0 zip: copy it from the desktop's
@@ -164,6 +164,18 @@ Answered by Alex on 2026-10-23 (AskUserQuestion, recommended option each time):
    interop check and one cross-check.
 5. GCC defects F1 and F2: I search GCC Bugzilla for duplicates and draft both reports in
    `design/`; Alex files them himself. Nothing is sent on his behalf.
+
+From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coordinator;
+`Papers/lab/laptop/queue-plan-2026-10-draft.md`, section 10):
+
+6. Gap block approved: Lab request 4 (the MinGW-w64 GCC 16.2.0 zip copied to the laptop's
+   Windows and checked) and Laptop request 1 (the Arch gcc check and the `define_aggregate`
+   probe) run in laptop gaps. The coordinator's operator reads both from this file.
+7. D1: no `pacman` upgrade or install on the laptop's Arch until P4's Arch blocks end. If Arch's
+   gcc package differs from the image's, the fix is a side-by-side GCC build under `~/opt`,
+   never a `pacman` change.
+8. D2: P5 uses Go 1.27.2, the same as P4 and P7 (Lab request 2).
+9. D4: P4's idle day carries only read-only jobs.
 
 Open: none. Next actions from these answers: the MinGW-w64 GCC 16 desktop probe (a pinned
 download into a fresh folder, checked against its published sha256). The two report drafts are in
