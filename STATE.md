@@ -122,8 +122,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Laptop requests
 
-The coordinator batches these and asks Alex for the hours. No request has final commands yet;
-rows 2 and 3 get them when the schema generator's G_P build and the arms exist.
+Since 2026-10-26 (Alex's standing rule, Papers AGENTS.md bc1a76d) laptop requests do not wait
+for his approval of hours: when a row (or lab requests 1 to 3) is ready, send its spec to the
+coordinator, who queues it at once. Design, scope and pushes still go to Alex. No request has
+final commands yet; rows 2 and 3 get them when the G_P build and the arms exist.
 
 1. Done 2026-10-24 on the laptop's Arch: jobs `a1-p5-f1` and `a1-p5-define-aggregate`, both exit
    0 (archive `C:/Users/alext/lab/laptop-archive/gap1-a-q4-visit-a1-c0eb9960/`, sha256 files
