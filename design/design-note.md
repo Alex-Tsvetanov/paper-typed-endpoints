@@ -111,15 +111,18 @@ Sizes: N in {16, 32, 64, 128, 256, 512, 1024, 2048, 4096}: 9 sizes x 2 shapes x 
 size that compiles under defaults, a declared secondary curve raises `-fconstexpr-ops-limit`
 (value fixed in the frozen design). The largest default-limit size per shape is itself a result, once reproduced on the laptop.
 
-Default-limit ceiling, desktop pass/fail probe (no timing), commit 531eca8: both shapes pass 1024
-and fail 2048. GCC's limit is 33,554,432 operations per outermost constant evaluation (GCC counts
-every non-constant expression node it evaluates, `constexpr.cc` in `cxx_eval_constant_expression`,
-and resets the count per `cxx_eval_outermost_constant_expr`), and the schema tables are one
-evaluation. Operation counts from bisecting the limit (`bench/constexpr_ops.sh`; deterministic for
-one GCC build, not a timing; engineering guidance only, reproduced on the laptop before anything
-cites them) guide the engineering: at 256 fields about 17k operations per field for `wide` and 28k
-for `many`, down from 72k at the first commit; `-O2` and `-O0` give the same counts within 1%.
-Reaching 4096 fields under default limits needs about 8k per field. Two levers: fewer operations
+Default-limit ceiling, desktop pass/fail probe (no timing), commit d0545b3, GCC 16.2.0: `wide`
+passes 4096; `many` passes 2048 and fails 4096. GCC's limit is 33,554,432 operations per outermost
+constant evaluation (GCC counts every non-constant expression node it evaluates, `constexpr.cc` in
+`cxx_eval_constant_expression`, and resets the count per `cxx_eval_outermost_constant_expr`), and
+the schema tables are one evaluation. A variable template first used inside another evaluation
+(the tables inside `define_messages`) shares that evaluation's count; one forced earlier gets its
+own. Operation counts from bisecting the limit (`bench/constexpr_ops.sh`; deterministic for one
+GCC build, not a timing; engineering guidance only, reproduced on the laptop before anything cites
+them) guide the engineering: the tables of `many 1024` take 9.47M operations (9.2k per field),
+down from 30.0M the same morning and from 72k per field at the first commit; `-O2` and `-O0` give
+the same counts within 1%. Reaching 4096 fields under default limits needs about 8k per field.
+Two levers: fewer operations
 (which also shortens the compile, the measured quantity) and stages evaluated separately (each
 with its own limit; it raises the ceiling without shortening the compile). The laptop pilot's
 `-ftime-report` shows how much of the compile constant evaluation takes, which weighs the two.

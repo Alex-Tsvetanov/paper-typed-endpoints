@@ -41,13 +41,15 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Known performance items, unmeasured: nested message sizes are recomputed while writing (no
   size cache); decode dispatch is a linear chain over fields. Both wait for laptop probes.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
-  is 33,554,432 operations per evaluation; the schema tables are one evaluation.
-  `bench/constexpr_ops.sh` bisects the limit to count operations (deterministic, not timing).
-  Per field: `wide 256` 72k at e1907b9, 17k at 531eca8; `many 256` (32 messages, 32 rpcs) 28k.
-  Calibration: a small `std::string` built and moved costs about 9.5k, a vector push 0.9k, a
-  `string_view` compare 50; so names are views now. Ladder under default limits (pass/fail, no
-  timing, 531eca8): both shapes pass 1024 fields and fail 2048. Target: 4096, or a declared
-  secondary curve with raised limits. Next: the token vector (about 0.9k per token).
+  is 33,554,432 operations per outermost evaluation; GCC counts every expression node. A variable
+  template first used inside an evaluation shares its counter; forced earlier (a static_assert),
+  it gets its own. `bench/constexpr_ops.sh` bisects the limit (deterministic, not timing).
+  At d0545b3 (GCC 16.2.0), tables evaluation: many 1024 9.47M (9.2k per field; tokenize 2.8M,
+  parse 3.4M, checks 2.2M, tables 1.0M), wide 1024 about 7.0M; define_messages adds 0.38M.
+  From 30.0M and 16.8M this morning: one symbol table, fixed buffers instead of push_back
+  (micro-benchmark: 75 against 500 operations), one static string for all names.
+  Ladder under default limits (pass/fail): wide passes 4096; many passes 2048, fails 4096 (about
+  37.9M projected). Options: about 13% more cuts, or three separately evaluated stages.
 - Dev-image GCC 16.2.0 (Laptop request 4, desktop part, done 2026-10-29): the checked tarball,
   the request's configure line, `-j4`, installed into `D:\Dev\toolchains\gcc-16.2.0-linux`, which
   containers mount at `/home/dev/opt/gcc-16.2.0` (the image is unchanged). `g++` 16.2.0; the probe
