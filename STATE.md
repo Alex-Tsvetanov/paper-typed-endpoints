@@ -93,8 +93,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `g++` 16.2.0 (r3), GNU ld 2.47.20260726: `__cpp_impl_reflection` 202603L, `#embed`, constexpr
   exceptions. F1 reproduces at `-O2` (so it is in the 16.2.0 release too); F2 does not reproduce
   on this target. No ASan or UBSan on MinGW GCC.
-- Version gap: Linux had GCC 16.2.1 (Arch), Windows 16.2.0. Alex pinned 16.2.0 on both (Alex
-  decides 10); the Linux build is specified in `bench/requests/gcc-16.2.0.md`.
+- GCC 16.2.0 on every host since 2026-10-29 (Alex decides 10; Laptop request 4; dev image above).
 - Compiler findings (details in `design/compiler-findings.md`):
   - F1: GCC 16.2.1 miscompiles `string_view::find` from an offset when a constexpr function
     receives a string literal. The portable layer avoids `find` in constexpr code.
@@ -142,9 +141,10 @@ queue; design, scope and pushes still go to Alex.
    closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
    load test against each server variant, to learn how long one window takes and which load
    saturates the server.
-4. Queued as chain A19 (Alex decides 10): GCC 16.2.0 from source on Arch; source, configure line,
-   checks and linking in `bench/requests/gcc-16.2.0.md`. The job records its own build time. The
-   dev-image part is done (above).
+4. Done 2026-10-29 (chain A19, job `p5-gcc-16-2-0-l`; archive `C:/Users/alext/lab/laptop-archive/
+   gap40-a-q1-p5-gcc-877d16d0/`, sha256 17fac736...0beb checked): `~/opt/gcc-16.2.0` on Arch, per
+   `bench/requests/gcc-16.2.0.md`. g++ 16.2.0, probe line, 14 of 14, F1 as on the desktop. Make
+   -j14 2,611 s, install 15 s (the basis for a rebuild). Exit 1 was a script grep, fixed (Papers 6ec4ae3).
 
 ## Lab requests
 
