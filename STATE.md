@@ -61,10 +61,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 ## Build and test (desktop, functional only; no timing)
 
 - Presets in `CMakePresets.json`, build trees under `build/<preset>` (ignored).
-- Linux (`papers-dev:arch-2026-10-23`, `--cpus 4`, `-j4`): `tools/dev_linux_all.sh <presets>`.
-  Run line: `docker run --rm --cpus 4 --user dev -v D:\Dev\GitHub\Papers:/d/Dev/GitHub/Papers`
-  `-w /d/Dev/GitHub/Papers/p5-typed-endpoints/typed-endpoints papers-dev:arch-2026-10-23`
-  `bash tools/dev_linux_all.sh linux-gcc-debug` (Git Bash: set `MSYS_NO_PATHCONV=1`).
+- Linux: `docker run --rm --cpus 4 --user dev -v D:\Dev\GitHub\Papers:/d/Dev/GitHub/Papers -v`
+  `D:\Dev\toolchains\gcc-16.2.0-linux:/home/dev/opt/gcc-16.2.0:ro -w <repo> papers-dev:arch-2026-10-23`
+  `bash tools/dev_linux_all.sh <presets>` (Git Bash: `MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
 - Results on 2026-10-23 (pass or fail only):
   - `linux-gcc-debug`, `linux-gcc-release`, `linux-gcc-asan`: 14 of 14 pass (schema, wire, grpc,
@@ -72,8 +71,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   - `linux-clang-debug`, `linux-clang-asan` (libc++, full UBSan): portable tests pass;
     `reflection_layer` is reported Skipped with the reason.
   - `msvc-debug`, `msvc-release`, `msvc-asan`: portable tests pass; `reflection_layer` Skipped.
-  - `mingw-gcc-debug`, `mingw-gcc-release` (MinGW-w64 GCC 16.2.0, first on PATH): 14 of 14 pass,
-    reflection included (2026-10-23).
+  - `mingw-gcc-debug`, `mingw-gcc-release` (MinGW-w64 GCC 16.2.0 first on PATH): 14 of 14 pass.
 - Tests: golden wire vectors from `protoc` (`tests/golden/README.md`: protoc 3.21.12 from the
   local `ctpb-dev` image, a development oracle only); the encoder output equals them byte for
   byte for all 15 scalar types, enums, nested and repeated fields; `#embed` reads the schemas.
