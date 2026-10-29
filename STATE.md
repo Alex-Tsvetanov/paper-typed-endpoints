@@ -89,10 +89,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `g++` 16.2.0 (r3), GNU ld 2.47.20260726: `__cpp_impl_reflection` 202603L, `#embed`, constexpr
   exceptions. F1 reproduces at `-O2` (so it is in the 16.2.0 release too); F2 does not reproduce
   on this target. No ASan or UBSan on MinGW GCC.
-- Version gap: Linux has GCC 16.2.1 20260810 (Arch, a 16-branch snapshot), Windows 16.2.0 (a
-  release). To decide before the freeze: accept and declare the gap, or pin one exact version on
-  both OSes (for example GCC 16.2.0 built from source on Arch). The within-OS contrasts (reflection
-  against protoc) use one compiler either way; only the cross-OS contrast is affected.
+- Version gap: Linux had GCC 16.2.1 (Arch), Windows 16.2.0. Alex pinned 16.2.0 on both (Alex
+  decides 10); the Linux build is specified in `bench/requests/gcc-16.2.0.md`.
 - Compiler findings (details in `design/compiler-findings.md`):
   - F1: GCC 16.2.1 miscompiles `string_view::find` from an offset when a constexpr function
     receives a string literal. The portable layer avoids `find` in constexpr code.
@@ -123,10 +121,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Laptop requests
 
-Since 2026-10-26 (Alex's standing rule, Papers AGENTS.md bc1a76d) laptop requests do not wait
-for his approval of hours: when a row (or lab requests 1 to 3) is ready, send its spec to the
-coordinator, who queues it at once. Design, scope and pushes still go to Alex. No request has
-final commands yet; rows 2 and 3 get them when the G_P build and the arms exist.
+Since 2026-10-26 (Alex, AGENTS.md bc1a76d) a ready request goes straight to the coordinator's
+queue; design, scope and pushes still go to Alex.
 
 1. Done 2026-10-24 on the laptop's Arch: jobs `a1-p5-f1` and `a1-p5-define-aggregate`, both exit
    0 (archive `C:/Users/alext/lab/laptop-archive/gap1-a-q4-visit-a1-c0eb9960/`, sha256 files
@@ -144,6 +140,9 @@ final commands yet; rows 2 and 3 get them when the G_P build and the arms exist.
    closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
    load test against each server variant, to learn how long one window takes and which load
    saturates the server.
+4. Ready (Alex decides 10): GCC 16.2.0 from source on Arch, and the same for the dev image;
+   source, configure line, checks and linking in `bench/requests/gcc-16.2.0.md`. Arch. No
+   measured basis for the build time; the job records it.
 
 ## Lab requests
 
@@ -186,6 +185,8 @@ From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coord
    never a `pacman` change.
 8. D2: P5 uses Go 1.27.2, the same as P4 and P7 (Lab request 2).
 9. D4: P4's idle day carries only read-only jobs.
+10. GCC version (2026-10-29, relayed by the coordinator; question "Declare the gap, or pin 16.2.0
+    on both?"): "Pin 16.2.0 on both". Linux build request: `bench/requests/gcc-16.2.0.md`.
 
 Open: none. Next actions from these answers: the MinGW-w64 GCC 16 desktop probe (a pinned
 download into a fresh folder, checked against its published sha256). The two report drafts are in
