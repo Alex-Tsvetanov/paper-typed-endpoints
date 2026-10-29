@@ -151,9 +151,8 @@ queue; design, scope and pushes still go to Alex.
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 
-1. Pin one protobuf release for P5: the `protoc` binary (Linux and Windows) and the runtime source
-   at the same version, downloaded into a fresh folder and checked against the release asset's
-   published sha256. Needed for the `protoc` arm and to regenerate the golden vectors.
+1. Done 2026-10-29 on the desktop: protobuf 36.2 (protoc Linux and Windows, runtime) and abseil
+   20250512.1 in `C:\Users\alext\opt\_dl\p5-protobuf-36.2`, sha256 equal to `bench/pins.md`.
 2. Pin Go 1.27.2 (Alex, D2: the same as P4 and P7) and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
    through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
 3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
