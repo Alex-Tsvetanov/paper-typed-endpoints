@@ -13,8 +13,10 @@
 #include <algorithm>
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -274,6 +276,71 @@ struct token {
 
 namespace detail {
 
+// Equality by pointer walk: in constant evaluation every call and every checked index is charged,
+// so string_view's operator== (through char_traits) costs several times more.
+[[nodiscard]] constexpr bool same(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    const char* p = a.data();
+    const char* q = b.data();
+    for (const char* const e = p + a.size(); p != e; ++p, ++q)
+        if (*p != *q) return false;
+    return true;
+}
+
+// Append-only storage whose capacity is fixed when it is made, for trivially destructible
+// elements. In constant evaluation a construct_at into allocated storage costs about a fifth of
+// a vector's push_back, so the lexer and the parser keep their working lists here; the
+// capacity is an upper bound computed up front. Storage is released without destructor calls.
+template <class T>
+class fixed_buffer {
+    static_assert(std::is_trivially_destructible_v<T>);
+
+public:
+    constexpr fixed_buffer() noexcept = default;
+    constexpr explicit fixed_buffer(std::size_t capacity)
+        : data_(std::allocator<T>{}.allocate(capacity)), capacity_(capacity) {}
+    constexpr fixed_buffer(fixed_buffer&& o) noexcept : data_(o.data_), size_(o.size_), capacity_(o.capacity_) {
+        o.data_ = nullptr;
+        o.size_ = 0;
+        o.capacity_ = 0;
+    }
+    constexpr fixed_buffer& operator=(fixed_buffer&& o) noexcept {
+        if (this != &o) {
+            release();
+            data_ = o.data_;
+            size_ = o.size_;
+            capacity_ = o.capacity_;
+            o.data_ = nullptr;
+            o.size_ = 0;
+            o.capacity_ = 0;
+        }
+        return *this;
+    }
+    fixed_buffer(const fixed_buffer&) = delete;
+    fixed_buffer& operator=(const fixed_buffer&) = delete;
+    constexpr ~fixed_buffer() { release(); }
+
+    // Precondition: size() < capacity().
+    constexpr void push_back(const T& v) noexcept {
+        std::construct_at(data_ + size_, v);
+        ++size_;
+    }
+    // Precondition: n <= size().
+    constexpr void truncate(std::size_t n) noexcept { size_ = n; }
+    [[nodiscard]] constexpr T* data() noexcept { return data_; }
+    [[nodiscard]] constexpr const T* data() const noexcept { return data_; }
+    [[nodiscard]] constexpr std::size_t size() const noexcept { return size_; }
+    [[nodiscard]] constexpr std::size_t capacity() const noexcept { return capacity_; }
+
+private:
+    constexpr void release() noexcept {
+        if (data_ != nullptr) std::allocator<T>{}.deallocate(data_, capacity_);
+    }
+    T* data_ = nullptr;
+    std::size_t size_ = 0;
+    std::size_t capacity_ = 0;
+};
+
 [[nodiscard]] constexpr bool is_alpha(char c) noexcept {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
 }
@@ -339,10 +406,10 @@ namespace detail {
 
 // Splits the whole source into tokens. One pass; tokens view the source. It walks pointers and
 // derives a column from the start of the line, because constant evaluation charges for every
-// checked index and every call: this keeps the cost per character small.
-[[nodiscard]] constexpr std::expected<std::vector<token>, error> tokenize(std::string_view src) {
-    std::vector<token> out;
-    out.reserve(std::min<std::size_t>(src.size() / 4 + 1, std::size_t{1} << 16));
+// checked index and every call: this keeps the cost per character small. A token takes at least
+// one character, so the buffer holds the source's length plus the end token.
+[[nodiscard]] constexpr std::expected<detail::fixed_buffer<token>, error> tokenize(std::string_view src) {
+    detail::fixed_buffer<token> out(src.size() + 1);
     const char* const end = src.data() + src.size();
     const char* p = src.data();
     const char* line_start = p;
@@ -456,38 +523,60 @@ namespace detail {
 
 using namespace std::string_view_literals;
 
-struct scalar_name {
-    std::string_view name;
-    scalar type;
-};
-
-inline constexpr scalar_name scalar_names[] = {
-    {"double", scalar::double_},    {"float", scalar::float_},   {"int64", scalar::int64},
-    {"uint64", scalar::uint64},     {"int32", scalar::int32},    {"fixed64", scalar::fixed64},
-    {"fixed32", scalar::fixed32},   {"bool", scalar::bool_},     {"string", scalar::string},
-    {"bytes", scalar::bytes},       {"uint32", scalar::uint32},  {"sfixed32", scalar::sfixed32},
-    {"sfixed64", scalar::sfixed64}, {"sint32", scalar::sint32},  {"sint64", scalar::sint64},
-};
-
-// Scalar type names start with b, d, f, i, s or u; other names skip the table.
+// A scalar type name is picked by its first letter, length and last letter, then compared once.
 [[nodiscard]] constexpr bool find_scalar(std::string_view n, scalar& out) noexcept {
-    if (n.empty()) return false;
-    switch (n.front()) {
-        case 'b': case 'd': case 'f': case 'i': case 's': case 'u': break;
+    const std::size_t len = n.size();
+    if (len < 4 || len > 8) return false;
+    const char last = n.data()[len - 1];
+    std::string_view want;
+    scalar type{};
+    const auto pick = [&](std::string_view w, scalar t) {
+        want = w;
+        type = t;
+    };
+    switch (n.data()[0]) {
+        case 'b':
+            if (len == 4) pick("bool"sv, scalar::bool_);
+            else pick("bytes"sv, scalar::bytes);
+            break;
+        case 'd': pick("double"sv, scalar::double_); break;
+        case 'f':
+            if (len == 5) pick("float"sv, scalar::float_);
+            else if (last == '4') pick("fixed64"sv, scalar::fixed64);
+            else pick("fixed32"sv, scalar::fixed32);
+            break;
+        case 'i':
+            if (last == '4') pick("int64"sv, scalar::int64);
+            else pick("int32"sv, scalar::int32);
+            break;
+        case 's':
+            if (len == 8 && last == '4') pick("sfixed64"sv, scalar::sfixed64);
+            else if (len == 8) pick("sfixed32"sv, scalar::sfixed32);
+            else if (last == 'g') pick("string"sv, scalar::string);
+            else if (last == '4') pick("sint64"sv, scalar::sint64);
+            else pick("sint32"sv, scalar::sint32);
+            break;
+        case 'u':
+            if (last == '4') pick("uint64"sv, scalar::uint64);
+            else pick("uint32"sv, scalar::uint32);
+            break;
         default: return false;
     }
-    for (const auto& s : scalar_names) {
-        if (s.name.front() == n.front() && s.name == n) {
-            out = s.type;
-            return true;
-        }
-    }
-    return false;
+    if (!same(n, want)) return false;
+    out = type;
+    return true;
 }
 
 class parser {
 public:
-    constexpr explicit parser(std::vector<token> toks) : toks_(std::move(toks)) {}
+    // The token count bounds every list: a field takes at least five tokens, a message, enum or
+    // service four, an rpc nine. Reserving those bounds up front keeps the lists from growing.
+    constexpr explicit parser(fixed_buffer<token> toks)
+        : buf_(std::move(toks)), toks_(buf_.data()), ntoks_(buf_.size()), pending_(ntoks_ / 5 + 1) {
+        out_.messages.reserve(ntoks_ / 4 + 1);
+        out_.enums.reserve(ntoks_ / 4 + 1);
+        out_.services.reserve(ntoks_ / 4 + 1);
+    }
 
     [[nodiscard]] constexpr bool parse_file() {
         if (!parse_syntax()) return false;
@@ -522,7 +611,10 @@ public:
 private:
     enum class level : std::uint8_t { file, message, field, enumeration, enum_value, service, rpc };
 
-    std::vector<token> toks_;
+    fixed_buffer<token> buf_;
+    const token* toks_;
+    std::size_t ntoks_;
+    fixed_buffer<field> pending_;  // fields of the messages being parsed, innermost last
     std::size_t i_ = 0;
     file out_{};
     error err_{};
@@ -531,7 +623,7 @@ private:
 
     [[nodiscard]] constexpr const token& peek(std::size_t ahead = 0) const noexcept {
         const std::size_t k = i_ + ahead;
-        return k < toks_.size() ? toks_[k] : toks_.back();
+        return toks_[k < ntoks_ ? k : ntoks_ - 1];
     }
     [[nodiscard]] constexpr bool at_end() const noexcept { return peek().kind == tok::end; }
     // The source text from the start of token a to the end of token b.
@@ -540,11 +632,12 @@ private:
         const std::string_view y = toks_[b].text;
         return {x.data(), static_cast<std::size_t>(y.data() + y.size() - x.data())};
     }
+    // A symbol token is one character.
     [[nodiscard]] static constexpr bool is_symbol(const token& t, char c) noexcept {
-        return t.kind == tok::symbol && t.text.size() == 1 && t.text[0] == c;
+        return t.kind == tok::symbol && *t.text.data() == c;
     }
     [[nodiscard]] static constexpr bool is_word(const token& t, std::string_view w) noexcept {
-        return t.kind == tok::ident && t.text == w;
+        return t.kind == tok::ident && same(t.text, w);
     }
     constexpr bool fail(errc code, const token& t) {
         err_ = error{t.kind == tok::end ? errc::unexpected_end : code, t.loc, t.text};
@@ -826,7 +919,7 @@ private:
         return expect_symbol(';');
     }
 
-    [[nodiscard]] constexpr bool parse_field(std::uint32_t msg, bool repeated) {
+    [[nodiscard]] constexpr bool parse_field(bool repeated) {
         field f{};
         f.repeated = repeated;
         const token& type_tok = peek();
@@ -855,7 +948,7 @@ private:
         f.number = static_cast<std::uint32_t>(number);
         if (is_symbol(peek(), '[') && !parse_field_options(f, level::field)) return false;
         if (!expect_symbol(';')) return false;
-        out_.messages[msg].fields.push_back(std::move(f));
+        pending_.push_back(f);
         return true;
     }
 
@@ -882,10 +975,10 @@ private:
             if (is_word(t, "extensions"sv) || is_word(t, "extend"sv)) return fail(errc::unsupported_extensions, t);
             if (is_word(t, "repeated"sv)) {
                 ++i_;
-                return parse_field(index, true);
+                return parse_field(true);
             }
         }
-        return parse_field(index, false);
+        return parse_field(false);
     }
 
     [[nodiscard]] constexpr bool parse_message(std::uint32_t parent) {
@@ -903,6 +996,7 @@ private:
         m.loc = name_tok.loc;
         out_.messages.push_back(std::move(m));
         ++depth_;
+        const std::size_t mark = pending_.size();
         for (;;) {
             const token& t = peek();
             if (t.kind == tok::end) return fail(errc::unexpected_end, t);
@@ -912,6 +1006,9 @@ private:
             }
             if (!parse_message_item(index)) return false;
         }
+        // Nested messages took their fields off the stack, so this message's are contiguous.
+        out_.messages[index].fields.assign(pending_.data() + mark, pending_.data() + pending_.size());
+        pending_.truncate(mark);
         --depth_;
         return true;
     }
@@ -1024,6 +1121,7 @@ private:
         if (!expect_ident(s.name)) return false;
         s.loc = name_tok.loc;
         if (!expect_symbol('{')) return false;
+        s.rpcs.reserve(ntoks_ / 9 + 1);
         for (;;) {
             const token& t = peek();
             if (t.kind == tok::end) return fail(errc::unexpected_end, t);
@@ -1093,15 +1191,6 @@ inline constexpr std::uint32_t fnv_basis = 2166136261u;
 
 [[nodiscard]] constexpr std::uint32_t scoped_hash(std::uint32_t scope, std::string_view name) noexcept {
     return fnv1a(fnv_basis ^ (scope * 2654435761u), name);
-}
-
-[[nodiscard]] constexpr bool same(std::string_view a, std::string_view b) noexcept {
-    if (a.size() != b.size()) return false;
-    const char* p = a.data();
-    const char* q = b.data();
-    for (const char* const e = p + a.size(); p != e; ++p, ++q)
-        if (*p != *q) return false;
-    return true;
 }
 
 // The index of the first field whose name an earlier field already has, or npos. One pass over
