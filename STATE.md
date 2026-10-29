@@ -147,6 +147,8 @@ final commands yet; rows 2 and 3 get them when the G_P build and the arms exist.
 
 ## Lab requests
 
+Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
+
 1. Pin one protobuf release for P5: the `protoc` binary (Linux and Windows) and the runtime source
    at the same version, downloaded into a fresh folder and checked against the release asset's
    published sha256. Needed for the `protoc` arm and to regenerate the golden vectors.
