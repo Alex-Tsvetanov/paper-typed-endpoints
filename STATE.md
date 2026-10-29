@@ -132,11 +132,10 @@ queue; design, scope and pushes still go to Alex.
    counts, the ladder ceilings and F1 transfer to the laptop. F1 reproduced: correct at `-O0`,
    "f literal=3" and "g literal=3" at `-O1` and `-O2`. The probe
    (`probes/define_aggregate_probe.cpp` at c9d22bf) printed the expected line.
-2. Ready 2026-10-29: `bench/requests/compile-pilot.md`. Compile-curve pilot on Arch: protobuf built
-   there first, then 30 timed builds (16 and 1024 fields, both shapes and generators, plus protoc
-   at 4096; 3 replicates) and 8 `-ftime-report` builds. No measured basis for its length. Plain:
-   build the smallest and largest test schemas with both generators a few times, to learn how
-   long one build takes and where the compiler spends it.
+2. Done 2026-10-29 (A23, pilot, not a result; archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256
+   4b01a015...cc82; at c525595). Medians: R 2.3/2.5 s at 16 (wide/many), 28.3/34.8 s at 1024;
+   P 7.7/7.8 s, 26.8/33.2 s, 167/116 s at 4096. Replicates within 0.3%. At 1024, R spends 62 to
+   78% in code generation, 11/21% in constant evaluation. Protobuf build on the laptop 91 s.
 3. Not ready (needs the transport and the arms). End-to-end pilot: the length of a gRPC window and
    the saturating load, per arm. Arch first. No measured basis for gRPC windows; the lab's
    closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
@@ -146,6 +145,7 @@ queue; design, scope and pushes still go to Alex.
    gap40-a-q1-p5-gcc-877d16d0/`, sha256 17fac736...0beb checked): `~/opt/gcc-16.2.0` on Arch, per
    `bench/requests/gcc-16.2.0.md`. g++ 16.2.0, probe line, 14 of 14, F1 as on the desktop. Make
    -j14 2,611 s, install 15 s (the basis for a rebuild). Exit 1 was a script grep, fixed (Papers 6ec4ae3).
+5. Ready 2026-10-29: `bench/requests/compile-rerun.md`, R again at head, plus 2048 and wide 4096.
 
 ## Lab requests
 
