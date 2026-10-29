@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Deterministic constant-evaluation cost (not timing): the smallest -fconstexpr-ops-limit under
 # which GCC accepts a stage of the reflection pipeline for a generated schema. Bisection.
-# Usage: constexpr_ops.sh <wide|many> <n> <tokenize|parser|parse|tables|define>   (run inside papers-dev)
+# Usage: constexpr_ops.sh <wide|many> <n> <tokenize|parser|parse|tables|define>   (run inside papers-dev; CXX picks the compiler, default g++; CXXFLAGS adds flags, e.g. -O2,
+# which drops libstdc++'s default assertions of unoptimized builds)
 set -euo pipefail
 shape=$1 n=$2 stage=$3
 repo=$(cd "$(dirname "$0")/.." && pwd)
@@ -24,9 +25,9 @@ work=$(mktemp -d)
     define) echo 'consteval { tep::define_messages<schema>(); }' ;;
   esac
 } > "$work/tu.cpp"
-flags=(-std=c++26 -fsyntax-only -I "$repo/include")
+flags=(-std=c++26 -fsyntax-only -I "$repo/include" ${CXXFLAGS:-})
 case $stage in tables|define) flags+=(-freflection) ;; esac
-ok() { g++ "${flags[@]}" "-fconstexpr-ops-limit=$1" "$work/tu.cpp" > /dev/null 2>&1; }
+ok() { "${CXX:-g++}" "${flags[@]}" "-fconstexpr-ops-limit=$1" "$work/tu.cpp" > /dev/null 2>&1; }
 hi=33554432
 if ! ok $hi; then echo "$shape $n $stage: above the default limit $hi"; rm -rf "$work"; exit 0; fi
 lo=0

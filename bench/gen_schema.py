@@ -161,12 +161,12 @@ def protoc_user(shape: str, n: int) -> str:
             "    {",
             f"        {PACKAGE}::{name} m;",
             "        std::string bytes;",
-            "        m.SerializeToString(&bytes);",
+            "        if (!m.SerializeToString(&bytes)) return 1;",
             f"        {PACKAGE}::{name} back;",
             "        total += back.ParseFromString(bytes) ? bytes.size() : 1;",
             "        if (argc > 1)",
             "            for (const route& r : routes)",
-            f'                if (r.path == "/{PACKAGE}.Svc/Call{name}") total += r.fn(h, bytes, response) ? 1u : 0u;',
+            f'                if (r.path == "/{PACKAGE}.Svc/Call{name}") total += r.fn(h, bytes, response) ? 0u : 1u;',
             "    }",
         ]
     out += ['    std::printf("%zu\\n", total);', "    return 0;", "}"]
