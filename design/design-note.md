@@ -111,14 +111,19 @@ Sizes: N in {16, 32, 64, 128, 256, 512, 1024, 2048, 4096}: 9 sizes x 2 shapes x 
 size that compiles under defaults, a declared secondary curve raises `-fconstexpr-ops-limit`
 (value fixed in the frozen design). The largest default-limit size per shape is itself a result, once reproduced on the laptop.
 
-Default-limit ceiling, desktop pass/fail probe (no timing), current code: `wide` passes 1024 and
-fails 2048; `many` passes 512 and fails 1024. GCC's limit is 33,554,432 operations per constant
-evaluation, and the schema tables are one evaluation. Operation counts from bisecting the limit
-(`bench/constexpr_ops.sh`; deterministic for one GCC build, not a timing; engineering
-guidance only, reproduced on the laptop before anything cites them) guide the engineering: about 22k operations per field for `wide` and 36k for `many`, down from 72k at the
-first commit. Reaching 4096 fields under default limits needs about 8k per field; the next
-targets are the per-message and per-rpc costs. The ladder is fixed after this engineering and
-the laptop pilot.
+Default-limit ceiling, desktop pass/fail probe (no timing), commit 531eca8: both shapes pass 1024
+and fail 2048. GCC's limit is 33,554,432 operations per outermost constant evaluation (GCC counts
+every non-constant expression node it evaluates, `constexpr.cc` in `cxx_eval_constant_expression`,
+and resets the count per `cxx_eval_outermost_constant_expr`), and the schema tables are one
+evaluation. Operation counts from bisecting the limit (`bench/constexpr_ops.sh`; deterministic for
+one GCC build, not a timing; engineering guidance only, reproduced on the laptop before anything
+cites them) guide the engineering: at 256 fields about 17k operations per field for `wide` and 28k
+for `many`, down from 72k at the first commit; `-O2` and `-O0` give the same counts within 1%.
+Reaching 4096 fields under default limits needs about 8k per field. Two levers: fewer operations
+(which also shortens the compile, the measured quantity) and stages evaluated separately (each
+with its own limit; it raises the ceiling without shortening the compile). The laptop pilot's
+`-ftime-report` shows how much of the compile constant evaluation takes, which weighs the two.
+The ladder is fixed after this engineering and the pilot.
 
 Replicates (D9): one contrast (G_R against G_P) per shape and size, m = 18, Holm at alpha 0.05:
 alpha/m = 0.00278, so R = 9 suffices (2^-9 = 0.00195); take R = 10. Order interleaved

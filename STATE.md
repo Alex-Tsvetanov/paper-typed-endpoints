@@ -53,8 +53,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   containers mount at `/home/dev/opt/gcc-16.2.0` (the image is unchanged). `g++` 16.2.0; the probe
   prints the expected line; F1 as in MinGW 16.2.0; 14 of 14 pass at 20777ca (Release, rpath to
   its `lib64`, so the tests load its libstdc++).
-- In progress: abseil 20250512.1 and protobuf 36.2 built with that GCC (C++26, `-O2`, static) into
-  `D:\Dev\toolchains\protobuf-36.2-linux`; then the G_P user program (`gen_schema.py protoc`).
+- Protoc arm, dev image (2026-10-29): `bench/build_protobuf.sh` (pinned abseil and protobuf, GCC
+  16.2.0, C++26 `-O2`, static) into `D:\Dev\toolchains\protobuf-36.2-linux`; `bench/compile_curve.py`
+  builds one G_R or G_P cell and checks it (functional on the desktop with `--no-time`: R at 1024,
+  P at 4096, both shapes, pass). Presets `linux-gcc1620-{release,debug,asan}`: 14 of 14 each.
 
 ## Build and test (desktop, functional only; no timing)
 
@@ -131,11 +133,11 @@ queue; design, scope and pushes still go to Alex.
    counts, the ladder ceilings and F1 transfer to the laptop. F1 reproduced: correct at `-O0`,
    "f literal=3" and "g literal=3" at `-O1` and `-O2`. The probe
    (`probes/define_aggregate_probe.cpp` at c9d22bf) printed the expected line.
-2. Not ready (needs the pinned protobuf and the G_P build). Compile-curve pilot: the smallest and
-   largest size of each shape and generator, 3 builds each, 24 builds. Arch. No measured basis;
-   ctpb's laptop retake (another compiler and implementation) took 2 to 9 s per build at 5 to 100
-   fields, which bounds nothing at 4096 fields. Plain: build the smallest and largest test
-   schemas with both generators a few times, to learn how long one build takes.
+2. Ready 2026-10-29: `bench/requests/compile-pilot.md`. Compile-curve pilot on Arch: protobuf built
+   there first, then 30 timed builds (16 and 1024 fields, both shapes and generators, plus protoc
+   at 4096; 3 replicates) and 8 `-ftime-report` builds. No measured basis for its length. Plain:
+   build the smallest and largest test schemas with both generators a few times, to learn how
+   long one build takes and where the compiler spends it.
 3. Not ready (needs the transport and the arms). End-to-end pilot: the length of a gRPC window and
    the saturating load, per arm. Arch first. No measured basis for gRPC windows; the lab's
    closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
