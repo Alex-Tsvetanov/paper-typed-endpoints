@@ -394,26 +394,27 @@ inline constexpr char_classes char_class = make_char_classes();
                                            bool& overflow) noexcept {
     overflow = false;
     out = 0;
-    if (t.empty()) return false;
+    const char* q = t.data();
+    const char* const e = q + t.size();
+    if (q == e) return false;
     std::uint64_t base = 10;
-    std::size_t i = 0;
-    if (t.size() > 2 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X')) {
+    if (e - q > 2 && q[0] == '0' && (q[1] == 'x' || q[1] == 'X')) {
         base = 16;
-        i = 2;
-    } else if (t.size() > 1 && t[0] == '0') {
+        q += 2;
+    } else if (e - q > 1 && q[0] == '0') {
         base = 8;
-        i = 1;
+        q += 1;
     }
-    for (; i < t.size(); ++i) {
-        const char c = t[i];
+    for (; q != e; ++q) {
+        const char c = *q;
         std::uint64_t d = 0;
-        if (base == 16) {
-            if (!is_hex(c)) return false;
-            d = static_cast<std::uint64_t>(hex_value(c));
-        } else {
-            if (!is_digit(c)) return false;
+        if (c >= '0' && c <= '9') {
             d = static_cast<std::uint64_t>(c - '0');
             if (d >= base) return false;
+        } else if (base == 16 && is_hex(c)) {
+            d = static_cast<std::uint64_t>(hex_value(c));
+        } else {
+            return false;
         }
         if (out > (~std::uint64_t{0} - d) / base) overflow = true;
         out = out * base + d;
@@ -447,7 +448,9 @@ inline constexpr char_classes char_class = make_char_classes();
         const char c = *p;
         const std::uint8_t k = cls[static_cast<unsigned char>(c)];
         if ((k & detail::cls_space) != 0) {
-            ++p;
+            do {
+                ++p;
+            } while (p != end && (cls[static_cast<unsigned char>(*p)] & detail::cls_space) != 0);
             continue;
         }
         if (c == '\n') {
@@ -468,9 +471,12 @@ inline constexpr char_classes char_class = make_char_classes();
         if ((k & detail::cls_digit) != 0 ||
             (c == '.' && end - p > 1 && (cls[static_cast<unsigned char>(p[1])] & detail::cls_digit) != 0)) {
             const bool hex = end - b > 1 && b[0] == '0' && (b[1] == 'x' || b[1] == 'X');
+            bool digits = true;  // decimal digits only
             while (p != end) {
                 const char d = *p;
-                if ((cls[static_cast<unsigned char>(d)] & detail::cls_alnum) != 0 || d == '.') {
+                const std::uint8_t dk = cls[static_cast<unsigned char>(d)];
+                if ((dk & detail::cls_alnum) != 0 || d == '.') {
+                    digits = digits && (dk & detail::cls_digit) != 0;
                     ++p;
                 } else if ((d == '+' || d == '-') && !hex && (p[-1] == 'e' || p[-1] == 'E')) {
                     ++p;
@@ -479,7 +485,9 @@ inline constexpr char_classes char_class = make_char_classes();
                 }
             }
             const std::string_view text = view(b, p);
-            out.push_back({detail::is_integer_literal(text) ? tok::integer : tok::floating, text, start});
+            // A plain decimal number is an integer; anything else gets the full check.
+            const bool integer = (digits && (*b != '0' || p - b == 1)) || detail::is_integer_literal(text);
+            out.push_back({integer ? tok::integer : tok::floating, text, start});
             continue;
         }
         if ((k & detail::cls_symbol) != 0) {
@@ -596,7 +604,7 @@ public:
     // The token count bounds every list: a field takes at least five tokens, a message, enum or
     // service four, an rpc nine. Reserving those bounds up front keeps the lists from growing.
     constexpr explicit parser(fixed_buffer<token> toks)
-        : buf_(std::move(toks)), toks_(buf_.data()), ntoks_(buf_.size()), pending_(ntoks_ / 5 + 1) {
+        : buf_(std::move(toks)), cur_(buf_.data()), ntoks_(buf_.size()), pending_(ntoks_ / 5 + 1) {
         out_.messages.reserve(ntoks_ / 4 + 1);
         out_.enums.reserve(ntoks_ / 4 + 1);
         out_.services.reserve(ntoks_ / 4 + 1);
@@ -605,9 +613,9 @@ public:
     [[nodiscard]] constexpr bool parse_file() {
         if (!parse_syntax()) return false;
         while (!at_end()) {
-            const token& t = peek();
+            const token& t = *cur_;
             if (is_symbol(t, ';')) {
-                ++i_;
+                ++cur_;
             } else if (is_word(t, "package"sv)) {
                 if (!parse_package()) return false;
             } else if (is_word(t, "import"sv)) {
@@ -636,24 +644,22 @@ private:
     enum class level : std::uint8_t { file, message, field, enumeration, enum_value, service, rpc };
 
     fixed_buffer<token> buf_;
-    const token* toks_;
+    // The current token. The parser steps past a token only after checking its kind, and the end
+    // token matches no check, so the cursor never passes it; one token of lookahead (cur_[1]) is
+    // taken only on an identifier, so it is at most the end token.
+    const token* cur_;
     std::size_t ntoks_;
     fixed_buffer<field> pending_;  // fields of the messages being parsed, innermost last
-    std::size_t i_ = 0;
     file out_{};
     error err_{};
     std::uint32_t depth_ = 0;
     bool have_package_ = false;
 
-    [[nodiscard]] constexpr const token& peek(std::size_t ahead = 0) const noexcept {
-        const std::size_t k = i_ + ahead;
-        return toks_[k < ntoks_ ? k : ntoks_ - 1];
-    }
-    [[nodiscard]] constexpr bool at_end() const noexcept { return peek().kind == tok::end; }
+    [[nodiscard]] constexpr bool at_end() const noexcept { return cur_->kind == tok::end; }
     // The source text from the start of token a to the end of token b.
-    [[nodiscard]] constexpr std::string_view span(std::size_t a, std::size_t b) const noexcept {
-        const std::string_view x = toks_[a].text;
-        const std::string_view y = toks_[b].text;
+    [[nodiscard]] static constexpr std::string_view span(const token* a, const token* b) noexcept {
+        const std::string_view x = a->text;
+        const std::string_view y = b->text;
         return {x.data(), static_cast<std::size_t>(y.data() + y.size() - x.data())};
     }
     // A symbol token is one character.
@@ -672,65 +678,65 @@ private:
         return false;
     }
     [[nodiscard]] constexpr bool expect_symbol(char c) {
-        if (!is_symbol(peek(), c)) return fail(errc::unexpected_token, peek());
-        ++i_;
+        if (!is_symbol(*cur_, c)) return fail(errc::unexpected_token, *cur_);
+        ++cur_;
         return true;
     }
     [[nodiscard]] constexpr bool expect_ident(std::string_view& out) {
-        const token& t = peek();
+        const token& t = *cur_;
         if (t.kind != tok::ident) return fail(errc::expected_identifier, t);
         out = t.text;
-        ++i_;
+        ++cur_;
         return true;
     }
     [[nodiscard]] constexpr bool expect_integer(std::uint64_t& out) {
-        const token& t = peek();
+        const token& t = *cur_;
         if (t.kind != tok::integer) return fail(errc::expected_integer, t);
         bool overflow = false;
         (void)parse_integer(t.text, out, overflow);
         if (overflow) return fail(errc::integer_overflow, t);
-        ++i_;
+        ++cur_;
         return true;
     }
     // ['.'] ident ('.' ident)*, as one view of the source. A name with spaces or comments between
     // its parts is refused (protoc accepts it; schemas do not write it), so every type name is a
     // view and no string is built: in constant evaluation a built string costs far more.
     [[nodiscard]] constexpr bool parse_type_ref(std::string_view& out) {
-        const std::size_t first = i_;
-        if (is_symbol(peek(), '.')) ++i_;
+        const token* const first = cur_;
+        if (is_symbol(*cur_, '.')) ++cur_;
         std::string_view part;
         if (!expect_ident(part)) return false;
-        while (is_symbol(peek(), '.')) {
-            ++i_;
+        while (is_symbol(*cur_, '.')) {
+            ++cur_;
             if (!expect_ident(part)) return false;
         }
-        for (std::size_t k = first + 1; k < i_; ++k) {
-            const std::string_view a = toks_[k - 1].text;
-            if (a.data() + a.size() != toks_[k].text.data())
-                return fail_at(errc::spaced_type_name, toks_[first].loc, span(first, i_ - 1));
+        for (const token* k = first + 1; k != cur_; ++k) {
+            const std::string_view a = k[-1].text;
+            if (a.data() + a.size() != k->text.data())
+                return fail_at(errc::spaced_type_name, first->loc, span(first, cur_ - 1));
         }
-        out = span(first, i_ - 1);
+        out = span(first, cur_ - 1);
         return true;
     }
 
     [[nodiscard]] constexpr bool parse_syntax() {
-        const token& t = peek();
+        const token& t = *cur_;
         if (is_word(t, "edition"sv)) return fail(errc::unsupported_editions, t);
         if (!is_word(t, "syntax"sv)) return fail(errc::missing_syntax, t);
-        ++i_;
+        ++cur_;
         if (!expect_symbol('=')) return false;
-        const token& v = peek();
+        const token& v = *cur_;
         if (v.kind != tok::string) return fail(errc::expected_string, v);
         if (v.text != "proto3"sv) return fail(errc::syntax_not_proto3, v);
-        ++i_;
+        ++cur_;
         return expect_symbol(';');
     }
 
     [[nodiscard]] constexpr bool parse_package() {
-        const token& kw = peek();
+        const token& kw = *cur_;
         if (have_package_) return fail(errc::duplicate_package, kw);
-        ++i_;
-        if (is_symbol(peek(), '.')) return fail(errc::unexpected_token, peek());
+        ++cur_;
+        if (is_symbol(*cur_, '.')) return fail(errc::unexpected_token, *cur_);
         std::string_view name;
         if (!parse_type_ref(name)) return false;
         out_.package = std::string(name);
@@ -740,31 +746,31 @@ private:
 
     // A constant: identifier, signed number, one or more adjacent strings, or a {...} aggregate.
     [[nodiscard]] constexpr bool skip_constant() {
-        const token& t = peek();
+        const token& t = *cur_;
         if (t.kind == tok::ident || t.kind == tok::integer || t.kind == tok::floating) {
-            ++i_;
+            ++cur_;
             return true;
         }
         if (is_symbol(t, '-') || is_symbol(t, '+')) {
-            ++i_;
-            const token& n = peek();
+            ++cur_;
+            const token& n = *cur_;
             if (n.kind != tok::integer && n.kind != tok::floating && n.kind != tok::ident)
                 return fail(errc::unexpected_token, n);
-            ++i_;
+            ++cur_;
             return true;
         }
         if (t.kind == tok::string) {
-            while (peek().kind == tok::string) ++i_;
+            while (cur_->kind == tok::string) ++cur_;
             return true;
         }
         if (is_symbol(t, '{')) {
             std::uint32_t open = 0;
             do {
-                const token& k = peek();
+                const token& k = *cur_;
                 if (k.kind == tok::end) return fail(errc::unexpected_end, k);
                 if (is_symbol(k, '{')) ++open;
                 if (is_symbol(k, '}')) --open;
-                ++i_;
+                ++cur_;
             } while (open != 0);
             return true;
         }
@@ -774,12 +780,12 @@ private:
     // optionName: ident ('.' ident)* | '(' ['.'] ident ('.' ident)* ')' ('.' ident)*
     // `name` views the whole name as written; `custom` is set for a parenthesized name.
     [[nodiscard]] constexpr bool parse_option_name(std::string_view& name, location& loc, bool& custom) {
-        const std::size_t first = i_;
-        loc = peek().loc;
+        const token* const first = cur_;
+        loc = cur_->loc;
         custom = false;
-        if (is_symbol(peek(), '(')) {
+        if (is_symbol(*cur_, '(')) {
             custom = true;
-            ++i_;
+            ++cur_;
             std::string_view ignored;
             if (!parse_type_ref(ignored)) return false;
             if (!expect_symbol(')')) return false;
@@ -787,12 +793,12 @@ private:
             std::string_view part;
             if (!expect_ident(part)) return false;
         }
-        while (is_symbol(peek(), '.')) {
-            ++i_;
+        while (is_symbol(*cur_, '.')) {
+            ++cur_;
             std::string_view part;
             if (!expect_ident(part)) return false;
         }
-        name = span(first, i_ - 1);
+        name = span(first, cur_ - 1);
         return true;
     }
 
@@ -840,14 +846,14 @@ private:
 
     // `option name = constant;` at file, message, enum, service or rpc level.
     [[nodiscard]] constexpr bool parse_option(level lv, bool* allow_alias = nullptr) {
-        ++i_;  // 'option'
+        ++cur_;  // 'option'
         std::string_view name;
         location loc{};
         bool custom = false;
         if (!parse_option_name(name, loc, custom)) return false;
         if (!check_option_name(lv, name, loc, custom)) return false;
         if (!expect_symbol('=')) return false;
-        const token& value = peek();
+        const token& value = *cur_;
         if (lv == level::enumeration && name == "allow_alias"sv) {
             if (!is_word(value, "true"sv) && !is_word(value, "false"sv)) return fail(errc::unexpected_token, value);
             if (allow_alias != nullptr) *allow_alias = is_word(value, "true"sv);
@@ -859,7 +865,7 @@ private:
     // '[' option (',' option)* ']' on a field or an enum value. Only `packed` changes the wire
     // format.
     [[nodiscard]] constexpr bool parse_field_options(field& f, level lv) {
-        ++i_;  // '['
+        ++cur_;  // '['
         for (;;) {
             std::string_view name;
             location loc{};
@@ -867,7 +873,7 @@ private:
             if (!parse_option_name(name, loc, custom)) return false;
             if (!check_option_name(lv, name, loc, custom)) return false;
             if (!expect_symbol('=')) return false;
-            const token& value = peek();
+            const token& value = *cur_;
             if (name == "packed"sv) {
                 if (f.packed_option != -1) return fail_at(errc::unsupported_option, loc, name);
                 if (is_word(value, "true"sv)) {
@@ -879,8 +885,8 @@ private:
                 }
             }
             if (!skip_constant()) return false;
-            if (is_symbol(peek(), ',')) {
-                ++i_;
+            if (is_symbol(*cur_, ',')) {
+                ++cur_;
                 continue;
             }
             return expect_symbol(']');
@@ -890,11 +896,11 @@ private:
     [[nodiscard]] constexpr bool read_reserved_bound(std::int64_t& v, bool is_enum) {
         const std::int64_t max_value = is_enum ? 2147483647 : std::int64_t{max_field_number};
         bool negative = false;
-        if (is_enum && is_symbol(peek(), '-')) {
+        if (is_enum && is_symbol(*cur_, '-')) {
             negative = true;
-            ++i_;
+            ++cur_;
         }
-        const token& t = peek();
+        const token& t = *cur_;
         std::uint64_t u = 0;
         if (!expect_integer(u)) return false;
         if (u > static_cast<std::uint64_t>(max_value) + (negative ? 1u : 0u) || (!is_enum && u == 0))
@@ -907,38 +913,38 @@ private:
     // reserved 1, 2, 9 to 11, 40 to max;   or   reserved "a", "b";
     [[nodiscard]] constexpr bool parse_reserved(std::vector<reserved_range>& ranges,
                                                 std::vector<reserved_name>& names, bool is_enum) {
-        ++i_;  // 'reserved'
-        if (peek().kind == tok::string) {
+        ++cur_;  // 'reserved'
+        if (cur_->kind == tok::string) {
             for (;;) {
-                const token& s = peek();
+                const token& s = *cur_;
                 if (s.kind != tok::string) return fail(errc::expected_string, s);
                 names.push_back({s.text, s.loc});
-                ++i_;
-                if (!is_symbol(peek(), ',')) break;
-                ++i_;
+                ++cur_;
+                if (!is_symbol(*cur_, ',')) break;
+                ++cur_;
             }
             return expect_symbol(';');
         }
         for (;;) {
-            const std::size_t first = i_;
+            const token* const first = cur_;
             reserved_range r{};
-            r.loc = peek().loc;
+            r.loc = cur_->loc;
             if (!read_reserved_bound(r.lo, is_enum)) return false;
             r.hi = r.lo;
-            if (is_word(peek(), "to"sv)) {
-                ++i_;
-                if (is_word(peek(), "max"sv)) {
+            if (is_word(*cur_, "to"sv)) {
+                ++cur_;
+                if (is_word(*cur_, "max"sv)) {
                     r.hi = is_enum ? 2147483647 : std::int64_t{max_field_number};
-                    ++i_;
+                    ++cur_;
                 } else if (!read_reserved_bound(r.hi, is_enum)) {
                     return false;
                 }
             }
-            r.text = span(first, i_ - 1);
+            r.text = span(first, cur_ - 1);
             if (r.lo > r.hi) return fail_at(errc::bad_reserved_range, r.loc, r.text);
             ranges.push_back(r);
-            if (!is_symbol(peek(), ',')) break;
-            ++i_;
+            if (!is_symbol(*cur_, ',')) break;
+            ++cur_;
         }
         return expect_symbol(';');
     }
@@ -946,23 +952,23 @@ private:
     [[nodiscard]] constexpr bool parse_field(bool repeated) {
         field f{};
         f.repeated = repeated;
-        const token& type_tok = peek();
+        const token& type_tok = *cur_;
         if (is_word(type_tok, "group"sv)) return fail(errc::unsupported_group, type_tok);
         f.type_loc = type_tok.loc;
-        const std::size_t type_first = i_;
+        const token* const type_first = cur_;
         if (type_tok.kind == tok::ident && find_scalar(type_tok.text, f.type)) {
             f.kind = field_kind::scalar;
-            ++i_;
+            ++cur_;
         } else {
             f.kind = field_kind::message;  // provisional; resolution may make it an enum
             if (!parse_type_ref(f.type_name)) return false;
         }
-        f.type_text = span(type_first, i_ - 1);
-        const token& name_tok = peek();
+        f.type_text = span(type_first, cur_ - 1);
+        const token& name_tok = *cur_;
         if (!expect_ident(f.name)) return false;
         f.loc = name_tok.loc;
         if (!expect_symbol('=')) return false;
-        const token& num_tok = peek();
+        const token& num_tok = *cur_;
         f.number_loc = num_tok.loc;
         f.number_text = num_tok.text;
         std::uint64_t number = 0;
@@ -970,16 +976,16 @@ private:
         if (number == 0 || number > max_field_number)
             return fail_at(errc::field_number_out_of_range, num_tok.loc, num_tok.text);
         f.number = static_cast<std::uint32_t>(number);
-        if (is_symbol(peek(), '[') && !parse_field_options(f, level::field)) return false;
+        if (is_symbol(*cur_, '[') && !parse_field_options(f, level::field)) return false;
         if (!expect_symbol(';')) return false;
         pending_.push_back(f);
         return true;
     }
 
     [[nodiscard]] constexpr bool parse_message_item(std::uint32_t index) {
-        const token& t = peek();
+        const token& t = *cur_;
         if (is_symbol(t, ';')) {
-            ++i_;
+            ++cur_;
             return true;
         }
         // Only words starting with e, m, o or r can be keywords here. Scalar types and most type
@@ -993,12 +999,12 @@ private:
                                       false);
             if (is_word(t, "option"sv)) return parse_option(level::message);
             if (is_word(t, "oneof"sv)) return fail(errc::unsupported_oneof, t);
-            if (is_word(t, "map"sv) && is_symbol(peek(1), '<')) return fail(errc::unsupported_map, t);
+            if (is_word(t, "map"sv) && is_symbol(cur_[1], '<')) return fail(errc::unsupported_map, t);
             if (is_word(t, "optional"sv)) return fail(errc::unsupported_optional, t);
             if (is_word(t, "required"sv)) return fail(errc::unsupported_label, t);
             if (is_word(t, "extensions"sv) || is_word(t, "extend"sv)) return fail(errc::unsupported_extensions, t);
             if (is_word(t, "repeated"sv)) {
-                ++i_;
+                ++cur_;
                 return parse_field(true);
             }
         }
@@ -1006,11 +1012,11 @@ private:
     }
 
     [[nodiscard]] constexpr bool parse_message(std::uint32_t parent) {
-        const token& kw = peek();
-        ++i_;  // 'message'
+        const token& kw = *cur_;
+        ++cur_;  // 'message'
         if (depth_ >= max_nesting) return fail(errc::nesting_too_deep, kw);
         std::string_view name;
-        const token& name_tok = peek();
+        const token& name_tok = *cur_;
         if (!expect_ident(name)) return false;
         if (!expect_symbol('{')) return false;
         const auto index = static_cast<std::uint32_t>(out_.messages.size());
@@ -1022,10 +1028,10 @@ private:
         ++depth_;
         const std::size_t mark = pending_.size();
         for (;;) {
-            const token& t = peek();
+            const token& t = *cur_;
             if (t.kind == tok::end) return fail(errc::unexpected_end, t);
             if (is_symbol(t, '}')) {
-                ++i_;
+                ++cur_;
                 break;
             }
             if (!parse_message_item(index)) return false;
@@ -1038,23 +1044,23 @@ private:
     }
 
     [[nodiscard]] constexpr bool parse_enum_value(enumeration& e) {
-        const token& t = peek();
+        const token& t = *cur_;
         enum_value v{};
         v.loc = t.loc;
         if (!expect_ident(v.name)) return false;
         if (!expect_symbol('=')) return false;
         bool negative = false;
-        if (is_symbol(peek(), '-')) {
+        if (is_symbol(*cur_, '-')) {
             negative = true;
-            ++i_;
+            ++cur_;
         }
-        const token& num_tok = peek();
+        const token& num_tok = *cur_;
         std::uint64_t u = 0;
         if (!expect_integer(u)) return false;
         if (u > (negative ? 2147483648ull : 2147483647ull))
             return fail_at(errc::enum_value_out_of_range, num_tok.loc, num_tok.text);
         v.number = negative ? static_cast<std::int32_t>(-static_cast<std::int64_t>(u)) : static_cast<std::int32_t>(u);
-        if (is_symbol(peek(), '[')) {
+        if (is_symbol(*cur_, '[')) {
             field ignored{};
             if (!parse_field_options(ignored, level::enum_value)) return false;
         }
@@ -1064,24 +1070,24 @@ private:
     }
 
     [[nodiscard]] constexpr bool parse_enum(std::uint32_t parent) {
-        const token& kw = peek();
-        ++i_;  // 'enum'
+        const token& kw = *cur_;
+        ++cur_;  // 'enum'
         if (depth_ >= max_nesting) return fail(errc::nesting_too_deep, kw);
         enumeration e{};
-        const token& name_tok = peek();
+        const token& name_tok = *cur_;
         if (!expect_ident(e.name)) return false;
         e.parent = parent;
         e.loc = name_tok.loc;
         if (!expect_symbol('{')) return false;
         for (;;) {
-            const token& t = peek();
+            const token& t = *cur_;
             if (t.kind == tok::end) return fail(errc::unexpected_end, t);
             if (is_symbol(t, '}')) {
-                ++i_;
+                ++cur_;
                 break;
             }
             if (is_symbol(t, ';')) {
-                ++i_;
+                ++cur_;
             } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::enumeration, &e.allow_alias)) return false;
             } else if (is_word(t, "reserved"sv)) {
@@ -1096,8 +1102,8 @@ private:
 
     [[nodiscard]] constexpr bool parse_rpc_type(std::string_view& name, location& loc) {
         if (!expect_symbol('(')) return false;
-        const token& t = peek();
-        if (is_word(t, "stream"sv) && (peek(1).kind == tok::ident || is_symbol(peek(1), '.')))
+        const token& t = *cur_;
+        if (is_word(t, "stream"sv) && (cur_[1].kind == tok::ident || is_symbol(cur_[1], '.')))
             return fail(errc::unsupported_streaming, t);
         loc = t.loc;
         if (!parse_type_ref(name)) return false;
@@ -1105,26 +1111,26 @@ private:
     }
 
     [[nodiscard]] constexpr bool parse_rpc(service& s) {
-        ++i_;  // 'rpc'
+        ++cur_;  // 'rpc'
         rpc r{};
-        r.loc = peek().loc;
+        r.loc = cur_->loc;
         if (!expect_ident(r.name)) return false;
         if (!parse_rpc_type(r.request_name, r.request_loc)) return false;
-        const token& ret = peek();
+        const token& ret = *cur_;
         if (!is_word(ret, "returns"sv)) return fail(errc::unexpected_token, ret);
-        ++i_;
+        ++cur_;
         if (!parse_rpc_type(r.response_name, r.response_loc)) return false;
-        if (is_symbol(peek(), '{')) {
-            ++i_;
+        if (is_symbol(*cur_, '{')) {
+            ++cur_;
             for (;;) {
-                const token& b = peek();
+                const token& b = *cur_;
                 if (b.kind == tok::end) return fail(errc::unexpected_end, b);
                 if (is_symbol(b, '}')) {
-                    ++i_;
+                    ++cur_;
                     break;
                 }
                 if (is_symbol(b, ';')) {
-                    ++i_;
+                    ++cur_;
                 } else if (is_word(b, "option"sv)) {
                     if (!parse_option(level::rpc)) return false;
                 } else {
@@ -1139,22 +1145,22 @@ private:
     }
 
     [[nodiscard]] constexpr bool parse_service() {
-        ++i_;  // 'service'
+        ++cur_;  // 'service'
         service s{};
-        const token& name_tok = peek();
+        const token& name_tok = *cur_;
         if (!expect_ident(s.name)) return false;
         s.loc = name_tok.loc;
         if (!expect_symbol('{')) return false;
         s.rpcs.reserve(ntoks_ / 9 + 1);
         for (;;) {
-            const token& t = peek();
+            const token& t = *cur_;
             if (t.kind == tok::end) return fail(errc::unexpected_end, t);
             if (is_symbol(t, '}')) {
-                ++i_;
+                ++cur_;
                 break;
             }
             if (is_symbol(t, ';')) {
-                ++i_;
+                ++cur_;
             } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::service)) return false;
             } else if (is_word(t, "rpc"sv)) {
@@ -1467,38 +1473,42 @@ private:
     // Parents come before their children in the message list.
     constexpr void build_full_names() {
         const std::string_view pkg = f_.package;
+        message* const ms = f_.messages.data();
+        enumeration* const es = f_.enums.data();
+        service* const ss = f_.services.data();
         const std::size_t nm = f_.messages.size();
         const std::size_t ne = f_.enums.size();
         const std::size_t ns = f_.services.size();
-        std::vector<std::uint32_t> off(nm + ne + ns, 0);
-        std::vector<std::uint32_t> len(nm + ne + ns, 0);
-        const auto base_len = [&](std::uint32_t parent) -> std::size_t {
-            return parent == npos ? pkg.size() : len[parent];
+        // A full name's size is its parent's (the package's at the top), a dot, and its own.
+        std::vector<std::uint32_t> sizes(nm, 0);
+        std::uint32_t* const msz = sizes.data();
+        const auto size_of = [&](std::uint32_t parent, std::string_view name) -> std::size_t {
+            const std::size_t base = parent == npos ? pkg.size() : msz[parent];
+            return (base == 0 ? 0 : base + 1) + name.size();
         };
         std::size_t total = 0;
-        const auto plan = [&](std::size_t slot, std::uint32_t parent, std::string_view name) {
-            const std::size_t base = base_len(parent);
-            off[slot] = static_cast<std::uint32_t>(total);
-            len[slot] = static_cast<std::uint32_t>((base == 0 ? 0 : base + 1) + name.size());
-            total += len[slot];
-        };
-        for (std::size_t i = 0; i < nm; ++i) plan(i, f_.messages[i].parent, f_.messages[i].name);
-        for (std::size_t i = 0; i < ne; ++i) plan(nm + i, f_.enums[i].parent, f_.enums[i].name);
-        for (std::size_t i = 0; i < ns; ++i) plan(nm + ne + i, npos, f_.services[i].name);
+        for (std::size_t i = 0; i < nm; ++i) {
+            msz[i] = static_cast<std::uint32_t>(size_of(ms[i].parent, ms[i].name));
+            total += msz[i];
+        }
+        for (std::size_t i = 0; i < ne; ++i) total += size_of(es[i].parent, es[i].name);
+        for (std::size_t i = 0; i < ns; ++i) total += size_of(npos, ss[i].name);
         f_.name_buffer.resize(total);
-        char* const data = f_.name_buffer.data();
-        const auto fill = [&](std::size_t slot, std::uint32_t parent, std::string_view name) {
-            char* p = data + off[slot];
-            const char* base = parent == npos ? pkg.data() : data + off[parent];
-            const std::size_t n = base_len(parent);
-            for (std::size_t k = 0; k < n; ++k) *p++ = base[k];
-            if (n != 0) *p++ = '.';
-            for (const char c : name) *p++ = c;
-            return std::string_view(data + off[slot], len[slot]);
+        char* w = f_.name_buffer.data();
+        // A parent's full name is written before its children's.
+        const auto fill = [&](std::uint32_t parent, std::string_view name) {
+            char* const start = w;
+            const std::string_view base = parent == npos ? pkg : ms[parent].full_name;
+            const char* b = base.data();
+            for (const char* const e = b + base.size(); b != e; ++b) *w++ = *b;
+            if (!base.empty()) *w++ = '.';
+            const char* c = name.data();
+            for (const char* const e = c + name.size(); c != e; ++c) *w++ = *c;
+            return std::string_view(start, static_cast<std::size_t>(w - start));
         };
-        for (std::size_t i = 0; i < nm; ++i) f_.messages[i].full_name = fill(i, f_.messages[i].parent, f_.messages[i].name);
-        for (std::size_t i = 0; i < ne; ++i) f_.enums[i].full_name = fill(nm + i, f_.enums[i].parent, f_.enums[i].name);
-        for (std::size_t i = 0; i < ns; ++i) f_.services[i].full_name = fill(nm + ne + i, npos, f_.services[i].name);
+        for (std::size_t i = 0; i < nm; ++i) ms[i].full_name = fill(ms[i].parent, ms[i].name);
+        for (std::size_t i = 0; i < ne; ++i) es[i].full_name = fill(es[i].parent, es[i].name);
+        for (std::size_t i = 0; i < ns; ++i) ss[i].full_name = fill(npos, ss[i].name);
     }
 
     // C++-like scoping, as protoc does it. Every name goes into one table keyed by (scope, simple
