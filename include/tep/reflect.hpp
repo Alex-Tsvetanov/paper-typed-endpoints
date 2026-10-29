@@ -260,7 +260,10 @@ consteval schema_tables build_tables(std::string_view text) {
         services.push_back({std::define_static_string(s.full_name), static_cast<std::uint32_t>(rpcs.size()),
                             static_cast<std::uint32_t>(s.rpcs.size())});
         for (const auto& r : s.rpcs) {
-            const std::string path = "/" + s.full_name + "/" + std::string(r.name);
+            std::string path = "/";
+            path.append(s.full_name);
+            path.push_back('/');
+            path.append(r.name);
             rpcs.push_back({std::define_static_string(r.name), std::define_static_string(path), r.request,
                             r.response});
         }

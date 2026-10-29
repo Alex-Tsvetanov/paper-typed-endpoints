@@ -62,6 +62,7 @@ enum class errc : std::uint8_t {
     json_name_conflict,
     duplicate_definition,
     unknown_type,
+    spaced_type_name,
     not_a_message_type,
     recursive_message,
     empty_enum,
@@ -112,6 +113,8 @@ enum class errc : std::uint8_t {
         case errc::json_name_conflict: return "two fields have the same JSON name";
         case errc::duplicate_definition: return "name is defined twice";
         case errc::unknown_type: return "unknown type name";
+        case errc::spaced_type_name:
+            return "a qualified type name with spaces or comments between its parts is not supported";
         case errc::not_a_message_type: return "rpc request and response types must be messages";
         case errc::recursive_message: return "recursive message types are not supported";
         case errc::empty_enum: return "enum has no values";
@@ -156,7 +159,7 @@ struct field {
     std::uint32_t number = 0;
     field_kind kind = field_kind::scalar;
     scalar type = scalar::int32;
-    std::string type_name;           // as written, for enum and message fields
+    std::string_view type_name;      // as written, a view of the source, for enum and message fields
     std::uint32_t type_index = npos; // resolved index into file::enums or file::messages
     bool repeated = false;
     bool packed = false;             // effective encoding of a repeated field
@@ -182,7 +185,7 @@ struct reserved_name {
 
 struct message {
     std::string_view name;
-    std::string full_name;
+    std::string_view full_name;  // a view of file::name_buffer
     std::uint32_t parent = npos;
     std::vector<field> fields;
     std::vector<reserved_range> reserved_ranges;
@@ -198,7 +201,7 @@ struct enum_value {
 
 struct enumeration {
     std::string_view name;
-    std::string full_name;
+    std::string_view full_name;  // a view of file::name_buffer
     std::uint32_t parent = npos;
     std::vector<enum_value> values;
     std::vector<reserved_range> reserved_ranges;
@@ -209,8 +212,8 @@ struct enumeration {
 
 struct rpc {
     std::string_view name;
-    std::string request_name;   // as written
-    std::string response_name;  // as written
+    std::string_view request_name;   // as written, a view of the source
+    std::string_view response_name;  // as written, a view of the source
     std::uint32_t request = npos;
     std::uint32_t response = npos;
     location loc{};
@@ -220,13 +223,22 @@ struct rpc {
 
 struct service {
     std::string_view name;
-    std::string full_name;
+    std::string_view full_name;  // a view of file::name_buffer
     std::vector<rpc> rpcs;
     location loc{};
 };
 
 struct file {
+    // Full names view name_buffer, so a file can be moved but not copied.
+    constexpr file() = default;
+    constexpr file(file&&) noexcept = default;
+    constexpr file& operator=(file&&) noexcept = default;
+    file(const file&) = delete;
+    file& operator=(const file&) = delete;
+    constexpr ~file() = default;
+
     std::string package;
+    std::vector<char> name_buffer;  // every full name, back to back
     std::vector<message> messages;
     std::vector<enumeration> enums;
     std::vector<service> services;
@@ -490,9 +502,9 @@ public:
             } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::file)) return false;
             } else if (is_word(t, "message"sv)) {
-                if (!parse_message(npos, "")) return false;
+                if (!parse_message(npos)) return false;
             } else if (is_word(t, "enum"sv)) {
-                if (!parse_enum(npos, "")) return false;
+                if (!parse_enum(npos)) return false;
             } else if (is_word(t, "service"sv)) {
                 if (!parse_service()) return false;
             } else if (is_word(t, "extend"sv)) {
@@ -563,22 +575,24 @@ private:
         ++i_;
         return true;
     }
-    // ['.'] ident ('.' ident)*
-    [[nodiscard]] constexpr bool parse_type_name(std::string& out) {
-        out.clear();
-        if (is_symbol(peek(), '.')) {
-            out.push_back('.');
-            ++i_;
-        }
+    // ['.'] ident ('.' ident)*, as one view of the source. A name with spaces or comments between
+    // its parts is refused (protoc accepts it; schemas do not write it), so every type name is a
+    // view and no string is built: in constant evaluation a built string costs far more.
+    [[nodiscard]] constexpr bool parse_type_ref(std::string_view& out) {
+        const std::size_t first = i_;
+        if (is_symbol(peek(), '.')) ++i_;
         std::string_view part;
         if (!expect_ident(part)) return false;
-        out.append(part);
         while (is_symbol(peek(), '.')) {
             ++i_;
             if (!expect_ident(part)) return false;
-            out.push_back('.');
-            out.append(part);
         }
+        for (std::size_t k = first + 1; k < i_; ++k) {
+            const std::string_view a = toks_[k - 1].text;
+            if (a.data() + a.size() != toks_[k].text.data())
+                return fail_at(errc::spaced_type_name, toks_[first].loc, span(first, i_ - 1));
+        }
+        out = span(first, i_ - 1);
         return true;
     }
 
@@ -600,9 +614,9 @@ private:
         if (have_package_) return fail(errc::duplicate_package, kw);
         ++i_;
         if (is_symbol(peek(), '.')) return fail(errc::unexpected_token, peek());
-        std::string name;
-        if (!parse_type_name(name)) return false;
-        out_.package = std::move(name);
+        std::string_view name;
+        if (!parse_type_ref(name)) return false;
+        out_.package = std::string(name);
         have_package_ = true;
         return expect_symbol(';');
     }
@@ -649,8 +663,8 @@ private:
         if (is_symbol(peek(), '(')) {
             custom = true;
             ++i_;
-            std::string ignored;
-            if (!parse_type_name(ignored)) return false;
+            std::string_view ignored;
+            if (!parse_type_ref(ignored)) return false;
             if (!expect_symbol(')')) return false;
         } else {
             std::string_view part;
@@ -824,7 +838,7 @@ private:
             ++i_;
         } else {
             f.kind = field_kind::message;  // provisional; resolution may make it an enum
-            if (!parse_type_name(f.type_name)) return false;
+            if (!parse_type_ref(f.type_name)) return false;
         }
         f.type_text = span(type_first, i_ - 1);
         const token& name_tok = peek();
@@ -845,7 +859,7 @@ private:
         return true;
     }
 
-    [[nodiscard]] constexpr bool parse_message_item(std::uint32_t index, const std::string& local) {
+    [[nodiscard]] constexpr bool parse_message_item(std::uint32_t index) {
         const token& t = peek();
         if (is_symbol(t, ';')) {
             ++i_;
@@ -855,8 +869,8 @@ private:
         // names go straight to the field, without a keyword comparison.
         const char first = t.kind == tok::ident ? t.text.front() : '\0';
         if (first == 'e' || first == 'm' || first == 'o' || first == 'r') {
-            if (is_word(t, "message"sv)) return parse_message(index, local);
-            if (is_word(t, "enum"sv)) return parse_enum(index, local);
+            if (is_word(t, "message"sv)) return parse_message(index);
+            if (is_word(t, "enum"sv)) return parse_enum(index);
             if (is_word(t, "reserved"sv))
                 return parse_reserved(out_.messages[index].reserved_ranges, out_.messages[index].reserved_names,
                                       false);
@@ -874,7 +888,7 @@ private:
         return parse_field(index, false);
     }
 
-    [[nodiscard]] constexpr bool parse_message(std::uint32_t parent, std::string_view scope) {
+    [[nodiscard]] constexpr bool parse_message(std::uint32_t parent) {
         const token& kw = peek();
         ++i_;  // 'message'
         if (depth_ >= max_nesting) return fail(errc::nesting_too_deep, kw);
@@ -885,11 +899,9 @@ private:
         const auto index = static_cast<std::uint32_t>(out_.messages.size());
         message m{};
         m.name = name;
-        m.full_name = scope.empty() ? std::string(name) : std::string(scope) + "." + std::string(name);
         m.parent = parent;
         m.loc = name_tok.loc;
         out_.messages.push_back(std::move(m));
-        const std::string local = out_.messages[index].full_name;
         ++depth_;
         for (;;) {
             const token& t = peek();
@@ -898,7 +910,7 @@ private:
                 ++i_;
                 break;
             }
-            if (!parse_message_item(index, local)) return false;
+            if (!parse_message_item(index)) return false;
         }
         --depth_;
         return true;
@@ -930,14 +942,13 @@ private:
         return true;
     }
 
-    [[nodiscard]] constexpr bool parse_enum(std::uint32_t parent, std::string_view scope) {
+    [[nodiscard]] constexpr bool parse_enum(std::uint32_t parent) {
         const token& kw = peek();
         ++i_;  // 'enum'
         if (depth_ >= max_nesting) return fail(errc::nesting_too_deep, kw);
         enumeration e{};
         const token& name_tok = peek();
         if (!expect_ident(e.name)) return false;
-        e.full_name = scope.empty() ? std::string(e.name) : std::string(scope) + "." + std::string(e.name);
         e.parent = parent;
         e.loc = name_tok.loc;
         if (!expect_symbol('{')) return false;
@@ -962,13 +973,13 @@ private:
         return true;
     }
 
-    [[nodiscard]] constexpr bool parse_rpc_type(std::string& name, location& loc) {
+    [[nodiscard]] constexpr bool parse_rpc_type(std::string_view& name, location& loc) {
         if (!expect_symbol('(')) return false;
         const token& t = peek();
         if (is_word(t, "stream"sv) && (peek(1).kind == tok::ident || is_symbol(peek(1), '.')))
             return fail(errc::unsupported_streaming, t);
         loc = t.loc;
-        if (!parse_type_name(name)) return false;
+        if (!parse_type_ref(name)) return false;
         return expect_symbol(')');
     }
 
@@ -1011,7 +1022,6 @@ private:
         service s{};
         const token& name_tok = peek();
         if (!expect_ident(s.name)) return false;
-        s.full_name = std::string(s.name);
         s.loc = name_tok.loc;
         if (!expect_symbol('{')) return false;
         for (;;) {
@@ -1174,7 +1184,7 @@ public:
 
     [[nodiscard]] constexpr bool run() {
         if (!check_messages() || !check_enums() || !check_scopes()) return false;
-        qualify();
+        build_full_names();
         build_names();
         return resolve() && check_packed() && order_messages();
     }
@@ -1340,12 +1350,43 @@ private:
         return true;
     }
 
-    constexpr void qualify() {
-        if (f_.package.empty()) return;
-        const std::string prefix = f_.package + ".";
-        for (auto& m : f_.messages) m.full_name.insert(0, prefix);
-        for (auto& e : f_.enums) e.full_name.insert(0, prefix);
-        for (auto& s : f_.services) s.full_name.insert(0, prefix);
+    // Full names, built once into one buffer: a message's or an enum's is its parent message's
+    // (or the package's) plus a dot and its name; a service's is the package's plus its name.
+    // Parents come before their children in the message list.
+    constexpr void build_full_names() {
+        const std::string_view pkg = f_.package;
+        const std::size_t nm = f_.messages.size();
+        const std::size_t ne = f_.enums.size();
+        const std::size_t ns = f_.services.size();
+        std::vector<std::uint32_t> off(nm + ne + ns, 0);
+        std::vector<std::uint32_t> len(nm + ne + ns, 0);
+        const auto base_len = [&](std::uint32_t parent) -> std::size_t {
+            return parent == npos ? pkg.size() : len[parent];
+        };
+        std::size_t total = 0;
+        const auto plan = [&](std::size_t slot, std::uint32_t parent, std::string_view name) {
+            const std::size_t base = base_len(parent);
+            off[slot] = static_cast<std::uint32_t>(total);
+            len[slot] = static_cast<std::uint32_t>((base == 0 ? 0 : base + 1) + name.size());
+            total += len[slot];
+        };
+        for (std::size_t i = 0; i < nm; ++i) plan(i, f_.messages[i].parent, f_.messages[i].name);
+        for (std::size_t i = 0; i < ne; ++i) plan(nm + i, f_.enums[i].parent, f_.enums[i].name);
+        for (std::size_t i = 0; i < ns; ++i) plan(nm + ne + i, npos, f_.services[i].name);
+        f_.name_buffer.resize(total);
+        char* const data = f_.name_buffer.data();
+        const auto fill = [&](std::size_t slot, std::uint32_t parent, std::string_view name) {
+            char* p = data + off[slot];
+            const char* base = parent == npos ? pkg.data() : data + off[parent];
+            const std::size_t n = base_len(parent);
+            for (std::size_t k = 0; k < n; ++k) *p++ = base[k];
+            if (n != 0) *p++ = '.';
+            for (const char c : name) *p++ = c;
+            return std::string_view(data + off[slot], len[slot]);
+        };
+        for (std::size_t i = 0; i < nm; ++i) f_.messages[i].full_name = fill(i, f_.messages[i].parent, f_.messages[i].name);
+        for (std::size_t i = 0; i < ne; ++i) f_.enums[i].full_name = fill(nm + i, f_.enums[i].parent, f_.enums[i].name);
+        for (std::size_t i = 0; i < ns; ++i) f_.services[i].full_name = fill(nm + ne + i, npos, f_.services[i].name);
     }
 
     constexpr void build_names() {
@@ -1364,10 +1405,33 @@ private:
                   [](const name_entry& a, const name_entry& b) { return a.full < b.full; });
     }
 
-    [[nodiscard]] constexpr const name_entry* lookup(std::string_view full) const noexcept {
-        const auto it = std::lower_bound(names_.begin(), names_.end(), full,
-                                         [](const name_entry& e, std::string_view k) { return e.full < k; });
-        if (it == names_.end() || it->full != full) return nullptr;
+    // Compares a with b1 + '.' + b2 (b2 alone when b1 is empty) in the order of string_view's
+    // operator<, without building the joined name.
+    [[nodiscard]] static constexpr int compare_joined(std::string_view a, std::string_view b1,
+                                                      std::string_view b2) noexcept {
+        const std::size_t nb = b1.empty() ? b2.size() : b1.size() + 1 + b2.size();
+        const std::size_t n = a.size() < nb ? a.size() : nb;
+        for (std::size_t i = 0; i < n; ++i) {
+            char c = '.';
+            if (b1.empty()) {
+                c = b2[i];
+            } else if (i < b1.size()) {
+                c = b1[i];
+            } else if (i > b1.size()) {
+                c = b2[i - b1.size() - 1];
+            }
+            if (a[i] != c) return static_cast<unsigned char>(a[i]) < static_cast<unsigned char>(c) ? -1 : 1;
+        }
+        if (a.size() == nb) return 0;
+        return a.size() < nb ? -1 : 1;
+    }
+
+    // The symbol named scope + '.' + rest (rest alone when scope is empty).
+    [[nodiscard]] constexpr const name_entry* lookup(std::string_view scope, std::string_view rest) const noexcept {
+        const auto it = std::lower_bound(names_.begin(), names_.end(), 0, [&](const name_entry& e, int) {
+            return compare_joined(e.full, scope, rest) < 0;
+        });
+        if (it == names_.end() || compare_joined(it->full, scope, rest) != 0) return nullptr;
         return &*it;
     }
 
@@ -1377,7 +1441,7 @@ private:
     // must exist inside it.
     [[nodiscard]] constexpr const name_entry* resolve_name(std::string_view scope, std::string_view name) const {
         if (!name.empty() && name.front() == '.') {
-            const name_entry* e = lookup(name.substr(1));
+            const name_entry* e = lookup({}, name.substr(1));
             return e != nullptr && is_type(e->kind) ? e : nullptr;
         }
         std::size_t dot = name.size();
@@ -1388,20 +1452,12 @@ private:
             }
         }
         const std::string_view first = name.substr(0, dot);
-        std::string candidate;
         for (;;) {
-            candidate.clear();
-            if (!scope.empty()) {
-                candidate.append(scope);
-                candidate.push_back('.');
-            }
-            candidate.append(first);
-            if (const name_entry* e = lookup(candidate); e != nullptr) {
+            if (const name_entry* e = lookup(scope, first); e != nullptr) {
                 if (dot == name.size()) {
                     if (is_type(e->kind)) return e;
                 } else {
-                    candidate.append(name.substr(dot));
-                    const name_entry* inner = lookup(candidate);
+                    const name_entry* inner = lookup(scope, name);
                     return inner != nullptr && is_type(inner->kind) ? inner : nullptr;
                 }
             }

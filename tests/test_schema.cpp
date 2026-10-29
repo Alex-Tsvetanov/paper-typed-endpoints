@@ -151,6 +151,7 @@ constexpr bad_case bad_cases[] = {
      errc::unsupported_option, 3, 43},
     {"backslash before a newline", P3 "option go_package = \"a\\\nb\";\n", errc::unterminated_string, 2, 21},
     {"backslash at the end", P3 "option go_package = \"a\\", errc::unterminated_string, 2, 21},
+    {"spaced qualified type", P3 "message A { message X {} }\nmessage B { A . X a = 1; }\n", errc::spaced_type_name, 3, 13},
 };
 
 #undef P3

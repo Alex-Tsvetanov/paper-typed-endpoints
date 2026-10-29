@@ -6,7 +6,7 @@ set -euo pipefail
 shape=$1 n=$2 stage=$3
 repo=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
-"${PYTHON:-python3}" "$repo/bench/gen_schema.py" schema --shape "$shape" --n "$n" > "$work/schema.proto"
+"${PYTHON:-python3}" "$repo/bench/gen_schema.py" schema --shape "$shape" --n "$n" ${GEN_FLAGS:-} > "$work/schema.proto"
 {
   echo '#include <string_view>'
   case $stage in

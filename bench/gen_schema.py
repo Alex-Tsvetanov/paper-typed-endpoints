@@ -28,7 +28,7 @@ PACKAGE = "bench"
 FIELDS_PER_MESSAGE = 8
 
 
-def messages(shape: str, n: int) -> list[tuple[str, list[tuple[str, str, int]]]]:
+def messages(shape: str, n: int, nesting: bool = True) -> list[tuple[str, list[tuple[str, str, int]]]]:
     """Returns (message name, [(type, field name, number)]) in declaration order."""
     if n < FIELDS_PER_MESSAGE or n % FIELDS_PER_MESSAGE != 0:
         raise SystemExit("n must be a positive multiple of 8")
@@ -41,23 +41,24 @@ def messages(shape: str, n: int) -> list[tuple[str, list[tuple[str, str, int]]]]
         fields = []
         for k in range(FIELDS_PER_MESSAGE):
             kind = KINDS[(m * FIELDS_PER_MESSAGE + k) % len(KINDS)]
-            if m % 2 == 1 and k == FIELDS_PER_MESSAGE - 1:
+            if nesting and m % 2 == 1 and k == FIELDS_PER_MESSAGE - 1:
                 kind = f"M{m - 1}"
             fields.append((kind, f"f{k + 1}", k + 1))
         out.append((f"M{m}", fields))
     return out
 
 
-def schema(shape: str, n: int) -> str:
+def schema(shape: str, n: int, nesting: bool = True, service: bool = True) -> str:
     lines = ['syntax = "proto3";', f"package {PACKAGE};", "", "enum Kind {", "  KIND_ZERO = 0;", "  KIND_ONE = 1;", "}", ""]
-    msgs = messages(shape, n)
+    msgs = messages(shape, n, nesting)
     for name, fields in msgs:
         lines.append(f"message {name} {{")
         lines += [f"  {t} {f} = {num};" for t, f, num in fields]
         lines += ["}", ""]
-    lines.append("service Svc {")
-    lines += [f"  rpc Call{name}({name}) returns ({name});" for name, _ in msgs]
-    lines.append("}")
+    if service:
+        lines.append("service Svc {")
+        lines += [f"  rpc Call{name}({name}) returns ({name});" for name, _ in msgs]
+        lines.append("}")
     return "\n".join(lines) + "\n"
 
 
@@ -105,8 +106,13 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--shape", choices=["wide", "many"], required=True)
     ap.add_argument("--n", type=int, required=True)
     ap.add_argument("--proto", default="schema.proto")
+    ap.add_argument("--no-nesting", action="store_true", help="no field of another message type")
+    ap.add_argument("--no-service", action="store_true", help="no service, messages only")
     args = ap.parse_args(argv[1:])
-    text = schema(args.shape, args.n) if args.what == "schema" else reflect_user(args.shape, args.n, args.proto)
+    if args.what == "schema":
+        text = schema(args.shape, args.n, not args.no_nesting, not args.no_service)
+    else:
+        text = reflect_user(args.shape, args.n, args.proto)
     sys.stdout.write(text)
     return 0
 
