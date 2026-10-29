@@ -15,6 +15,7 @@ set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
 
 option(TEP_BUILD_TESTS "Build the functional tests" ON)
 option(TEP_WERROR "Treat warnings as errors" ON)
+option(TEP_FUZZ "Also build the fuzz targets as libFuzzer executables (clang only)" OFF)
 
 # Portable layers: schema front end, wire primitives, gRPC framing (C++23).
 add_library(tep INTERFACE)
@@ -52,4 +53,5 @@ endif()
 if(TEP_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+  add_subdirectory(fuzz)
 endif()

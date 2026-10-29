@@ -63,6 +63,14 @@
       }
     },
     {
+      "name": "linux-clang-fuzz",
+      "inherits": "linux-clang-asan",
+      "displayName": "clang 22 with libc++, ASan and UBSan, plus libFuzzer executables of the portable parsers",
+      "cacheVariables": {
+        "TEP_FUZZ": "ON"
+      }
+    },
+    {
       "name": "msvc-debug",
       "inherits": "base",
       "displayName": "MSVC, portable layers only",

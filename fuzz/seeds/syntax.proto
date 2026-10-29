@@ -1,0 +1,60 @@
+// A seed that touches most of the accepted proto3 syntax.
+syntax = "proto3";
+package seed.v1;
+
+option go_package = "example.com/seed;seed";
+option java_multiple_files = true;
+option optimize_for = SPEED;
+
+/* A block comment
+   over two lines. */
+enum Mode {
+  option allow_alias = true;
+  MODE_UNSPECIFIED = 0;
+  MODE_ON = 1;
+  MODE_ENABLED = 1;
+  MODE_OFF = 0x2;
+  MODE_LOW = -3;
+  reserved 9, 20 to 30, 100 to max;
+  reserved "MODE_OLD";
+}
+
+message Outer {
+  option deprecated = false;
+  message Inner {
+    enum Level { LEVEL_ZERO = 0; LEVEL_ONE = 1; }
+    Level level = 1;
+    repeated sint64 values = 2 [packed = true];
+  }
+  reserved 50 to 60;
+  reserved "gone", "older";
+  Inner inner = 1;
+  repeated Inner inners = 2;
+  .seed.v1.Mode mode = 3 [deprecated = true];
+  map_value_t_alias alias = 4;
+  string name = 5 [json_name = "displayName"];
+  bytes blob = 6;
+  repeated float points = 7 [packed = false];
+  fixed64 id = 010;
+  double ratio = 9;
+  bool ok = 0x0A;
+  Outer.Inner.Level level = 11;
+}
+
+message map_value_t_alias {
+  int32 a = 1;
+  uint32 b = 2;
+  int64 c = 3;
+  uint64 d = 4;
+  sfixed32 e = 5;
+  sfixed64 f = 6;
+  fixed32 g = 7;
+  sint32 h = 8;
+  string s = 9; // "quoted \"text\" and \x41\101"
+}
+
+service Seeds {
+  option deprecated = true;
+  rpc Get(Outer) returns (map_value_t_alias);
+  rpc Put(map_value_t_alias) returns (Outer) { option idempotency_level = IDEMPOTENT; }
+}
