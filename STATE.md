@@ -33,13 +33,15 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   options of each level (allow-lists), services with unary rpcs. Unknown and custom options are
   refused (custom options need an import). Refused with a diagnostic: map, oneof, `optional`, `required`, groups, extensions,
   import, editions, streaming, recursive messages, `[default]`, `message_set_wire_format`.
-- Not yet written: HTTP/2 transport (libnghttp2), the `protoc` arm, the benchmark server with
-  runtime arm selection, grpc-go interop programs, libFuzzer targets for the schema parser and
-  the decoder (the brief requires them; `linux-clang-asan` can build them for the portable
-  layers), and the related-work survey (the brief puts it first; Sonnet gathers, Opus re-checks
-  every claim). `bench/gen_schema.py` and a draft `bench/coverage.json` exist.
-- Known performance items, unmeasured: nested message sizes are recomputed while writing (no
-  size cache); decode dispatch is a linear chain over fields. Both wait for laptop probes.
+- Not yet written: HTTP/2 transport (libnghttp2), the benchmark server with runtime arm
+  selection, grpc-go interop programs, and the related-work survey (the brief puts it first;
+  Sonnet gathers, Opus re-checks every claim). The protoc arm's compile side exists
+  (`bench/build_protobuf.sh`, `bench/compile_curve.py`).
+- Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
+  decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
+  libFuzzer executables (desktop: 10 minutes each, no failure).
+- Decoding dispatches through a field-number table and per-field functions (613d6fb; it was a
+  comparison with every field, quadratic). Unmeasured: nested sizes are recomputed while writing.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
   is 33,554,432 operations per outermost evaluation; GCC counts every expression node. A variable
   template first used inside an evaluation shares its counter; forced earlier (a static_assert),
@@ -67,13 +69,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `D:\Dev\toolchains\gcc-16.2.0-linux:/home/dev/opt/gcc-16.2.0:ro -w <repo> papers-dev:arch-2026-10-23`
   `bash tools/dev_linux_all.sh <presets>` (Git Bash: `MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results on 2026-10-23 (pass or fail only):
-  - `linux-gcc-debug`, `linux-gcc-release`, `linux-gcc-asan`: 14 of 14 pass (schema, wire, grpc,
-    reflect, endpoint, 7 compile-fail tests, name guard and its canary).
-  - `linux-clang-debug`, `linux-clang-asan` (libc++, full UBSan): portable tests pass;
-    `reflection_layer` is reported Skipped with the reason.
-  - `msvc-debug`, `msvc-release`, `msvc-asan`: portable tests pass; `reflection_layer` Skipped.
-  - `mingw-gcc-debug`, `mingw-gcc-release` (MinGW-w64 GCC 16.2.0 first on PATH): 14 of 14 pass.
+- Results at c1dd0fb (pass or fail only): `linux-gcc1620-{release,asan}` 17 of 17 (5 unit, 7
+  compile-fail, 3 fuzz smoke, name guard and canary); `linux-clang-{asan,fuzz}`, `msvc-{debug,asan}`
+  8 of 8 portable, `reflection_layer` Skipped with the reason. MinGW: 14 of 14 on 2026-10-23.
 - Tests: golden wire vectors from `protoc` (`tests/golden/README.md`: protoc 3.21.12 from the
   local `ctpb-dev` image, a development oracle only); the encoder output equals them byte for
   byte for all 15 scalar types, enums, nested and repeated fields; `#embed` reads the schemas.
@@ -119,7 +117,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       the MEDIUM (a backslash before a newline in a string lost the line count; now refused, as
       protoc does) and two LOW (hash-flooding fallback to a sort, capped token reservation) are
       fixed in the next commit.
-- [ ] Next: per-message and per-rpc constexpr costs (in progress), `protoc` arm, transport, interop.
+- [ ] Fresh review of c525595..c1dd0fb (Opus, running 2026-10-30); then a laptop request for a
+      timed rerun of the dispatch change (coordinator: after the review is green).
+- [ ] Next: transport (nghttp2), the benchmark server, interop, the related-work survey.
 
 ## Laptop requests
 
