@@ -58,7 +58,9 @@ A reduced testcase (in `design/gcc-report-drafts.md`) fails the same way with
 option, and constant folding of an address compared with null stops).
 
 With MinGW-w64 GCC 16.2.0 the reduced testcase compiles cleanly with `-fsanitize=null` and with
-`-fno-delete-null-pointer-checks`, so F2 depends on the target.
+`-fno-delete-null-pointer-checks`, so F2 depends on the target. GCC 16.2.0 built for Linux from the
+release tarball (2026-10-29) fails on it with either option, as 16.2.1 does: F2 is in the release
+on x86_64 Linux.
 
 What this repository does: the `linux-gcc-asan` preset uses
 `-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute`.

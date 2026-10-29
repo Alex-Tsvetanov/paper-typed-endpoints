@@ -107,6 +107,43 @@
         "CMAKE_CXX_COMPILER": "g++",
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "gcc1620",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "$env{HOME}/opt/gcc-16.2.0/bin/g++"
+      }
+    },
+    {
+      "name": "linux-gcc1620-release",
+      "inherits": "gcc1620",
+      "displayName": "Pinned GCC 16.2.0 (~/opt), Release -O2, static libstdc++ and libgcc (timed builds)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc"
+      }
+    },
+    {
+      "name": "linux-gcc1620-debug",
+      "inherits": "gcc1620",
+      "displayName": "Pinned GCC 16.2.0 (~/opt), Debug, runtime from its lib64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-rpath,$env{HOME}/opt/gcc-16.2.0/lib64"
+      }
+    },
+    {
+      "name": "linux-gcc1620-asan",
+      "inherits": "gcc1620",
+      "displayName": "Pinned GCC 16.2.0 (~/opt), ASan and UBSan without the null checks (F2), runtimes from its lib64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-rpath,$env{HOME}/opt/gcc-16.2.0/lib64"
+      }
     }
   ]
 }
