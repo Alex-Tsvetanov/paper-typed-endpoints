@@ -110,6 +110,8 @@ Sizes: N in {16, 32, 64, 128, 256, 512, 1024, 2048, 4096}: 9 sizes x 2 shapes x 
 36 cells. The primary curve uses default compiler limits, since users do; above the largest
 size that compiles under defaults, a declared secondary curve raises `-fconstexpr-ops-limit`
 (value fixed in the frozen design). The largest default-limit size per shape is itself a result, once reproduced on the laptop.
+Decided 2026-10-30 (`design/revision-log.md`): `many` 4096 is the one secondary-curve cell, built
+with `-fconstexpr-ops-limit=67108864`.
 
 Default-limit ceiling, desktop pass/fail probe (no timing), commit d0545b3, GCC 16.2.0: `wide`
 passes 4096; `many` passes 2048 and fails 4096. GCC's limit is 33,554,432 operations per outermost

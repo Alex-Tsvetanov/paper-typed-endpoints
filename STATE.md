@@ -43,13 +43,13 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
   is 33,554,432 operations per outermost evaluation; GCC counts every expression node. A variable
   template first used inside an evaluation shares its counter; forced earlier (a static_assert),
-  it gets its own. `bench/constexpr_ops.sh` bisects the limit (deterministic, not timing).
-  At d0545b3 (GCC 16.2.0), tables evaluation: many 1024 9.47M (9.2k per field; tokenize 2.8M,
-  parse 3.4M, checks 2.2M, tables 1.0M), wide 1024 about 7.0M; define_messages adds 0.38M.
-  From 30.0M and 16.8M this morning: one symbol table, fixed buffers instead of push_back
-  (micro-benchmark: 75 against 500 operations), one static string for all names.
-  Ladder under default limits (pass/fail): wide passes 4096; many passes 2048, fails 4096 (about
-  37.9M projected). Options: about 13% more cuts, or three separately evaluated stages.
+  it gets its own (define_messages forces the tables so). `bench/constexpr_ops.sh` bisects the
+  limit (deterministic, not timing; MAX raises its ceiling). At d7d7ab8 (GCC 16.2.0) the tables:
+  many 1024, 2048, 4096: 8.91M, 17.8M, 35.7M (linear); wide 1024 6.55M. From 30.0M and 16.8M at
+  1024 the day before: one symbol table, fixed buffers instead of push_back (75 against 500
+  operations), one static string for all names, a token cursor. Ladder under default limits:
+  every cell except many 4096, which is the one secondary-curve cell (coordinator, 2026-10-30;
+  `design/revision-log.md`). The micro-cuts stopped there: code generation dominates compiles.
 - Dev-image GCC 16.2.0 (Laptop request 4, desktop part, done 2026-10-29): the checked tarball,
   the request's configure line, `-j4`, installed into `D:\Dev\toolchains\gcc-16.2.0-linux`, which
   containers mount at `/home/dev/opt/gcc-16.2.0` (the image is unchanged). `g++` 16.2.0; the probe

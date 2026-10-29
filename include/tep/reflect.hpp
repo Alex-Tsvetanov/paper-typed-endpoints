@@ -21,6 +21,7 @@
 #include <meta>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <concepts>
 #include <cstddef>
@@ -33,6 +34,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "tep/fixed_string.hpp"
@@ -871,6 +873,70 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
     }
 }
 
+// Decoding dispatches on the field number through tables: comparing the number with every field
+// made decoding quadratic in the field count, and made merge_from as large as the message for the
+// optimizer. Each field's decoder is a function of its own.
+template <class T, std::uint32_t K>
+constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_error& err) {
+    constexpr auto mem = members<T>[K];
+    return read_field<field_of<T, K>>(msg.[:mem:], r, wt, err);
+}
+
+template <class T>
+using member_reader = bool (*)(T&, wire::reader&, wire::wire_type, decode_error&);
+
+template <class T>
+inline constexpr auto readers = []<std::size_t... K>(std::index_sequence<K...>) {
+    return std::array<member_reader<T>, sizeof...(K)>{&read_member<T, static_cast<std::uint32_t>(K)>...};
+}(std::make_index_sequence<members<T>.size()>{});
+
+// Field numbers in ascending order, matching order<T>.
+template <class T>
+consteval std::vector<std::uint32_t> make_numbers() {
+    std::vector<std::uint32_t> v;
+    for (const std::uint32_t k : order<T>)
+        v.push_back(tables<typename message_traits<T>::schema>.fields[meta_of<T>().first_field + k].number);
+    return v;
+}
+
+template <class T>
+inline constexpr auto numbers = std::define_static_array(make_numbers<T>());
+
+// A direct table indexed by field number when the largest number is small next to the field
+// count, as in most schemas; a binary search over the sorted numbers otherwise.
+template <class T>
+inline constexpr bool dense_numbers = numbers<T>.empty() || numbers<T>.back() <= 4 * numbers<T>.size() + 64;
+
+template <class T>
+consteval std::vector<std::uint32_t> make_slots() {
+    std::vector<std::uint32_t> s(numbers<T>.empty() ? 1 : numbers<T>.back() + 1, 0);
+    for (std::size_t i = 0; i < numbers<T>.size(); ++i) s[numbers<T>[i]] = order<T>[i] + 1;
+    return s;
+}
+
+template <class T>
+inline constexpr auto slots = std::define_static_array(make_slots<T>());
+
+// The member index plus one of the field with this number, or 0 when the message has none.
+template <class T>
+constexpr std::uint32_t slot_of(std::uint32_t number) noexcept {
+    if constexpr (dense_numbers<T>) {
+        return number < slots<T>.size() ? slots<T>[number] : 0;
+    } else {
+        std::size_t lo = 0;
+        std::size_t hi = numbers<T>.size();
+        while (lo < hi) {
+            const std::size_t mid = lo + (hi - lo) / 2;
+            if (numbers<T>[mid] < number) {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        return lo < numbers<T>.size() && numbers<T>[lo] == number ? order<T>[lo] + 1 : 0;
+    }
+}
+
 }  // namespace detail
 
 // Merges the encoded message in r into msg: later singular values win, repeated values append,
@@ -886,16 +952,11 @@ constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
         if (tag > 0xFFFF'FFFFu || (tag >> 3) == 0 || r.p - tag_start > 5) return err = decode_error::bad_tag, false;
         const auto number = static_cast<std::uint32_t>(tag >> 3);
         const auto wt = static_cast<wire::wire_type>(tag & 7u);
-        bool known = false;
-        template for (constexpr std::uint32_t k : detail::order<T>) {
-            constexpr field_meta f = detail::field_of<T, k>;
-            if (!known && number == f.number) {
-                known = true;
-                constexpr auto mem = detail::members<T>[k];
-                if (!detail::read_field<f>(msg.[:mem:], r, wt, err)) return false;
-            }
+        if (const std::uint32_t slot = detail::slot_of<T>(number); slot != 0) {
+            if (!detail::readers<T>[slot - 1](msg, r, wt, err)) return false;
+        } else if (!r.skip(wt, number, re)) {
+            return err = detail::from_read(re), false;
         }
-        if (!known && !r.skip(wt, number, re)) return err = detail::from_read(re), false;
     }
     return true;
 }
