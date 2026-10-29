@@ -104,8 +104,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 ## Status
 
 - [x] Repository, STATE.md, design note draft, compiler findings.
-- [x] Skeleton building; functional tests pass on Linux (container) and Windows (MSVC, portable
-      layers; the reflection layer waits for Alex decides 1).
+- [x] Skeleton building; tests pass on Linux, MSVC (portable layers) and MinGW GCC 16 (all).
 - [x] Code review by a fresh agent (Opus, cpp-reviewer, 2026-10-23): 1 CRITICAL, 1 HIGH, 4
       MEDIUM, 5 LOW groups. All CRITICAL, HIGH and MEDIUM fixed, and most LOW (commit 8764052).
       Left open: value-type checks of option values (`[deprecated = "yes"]` is accepted), `1abc`
@@ -116,8 +115,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       the MEDIUM (a backslash before a newline in a string lost the line count; now refused, as
       protoc does) and two LOW (hash-flooding fallback to a sort, capped token reservation) are
       fixed in the next commit.
-- [ ] Next engineering: transport, `protoc` arm, schema generator, desktop pass/fail probe of the
-      compile ladder under default GCC limits, grpc-go interop.
+- [ ] Next: per-message and per-rpc constexpr costs (in progress), `protoc` arm, transport, interop.
 
 ## Laptop requests
 
