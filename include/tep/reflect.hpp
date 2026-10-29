@@ -466,7 +466,10 @@ consteval std::int32_t find_enum_value(std::string_view full) {
 
 // Defines every message of the schema as an aggregate, dependencies first. Call it once per
 // translation unit, from a consteval block: consteval { tep::define_messages<S>(); }
-template <schema_source Schema>
+// The defaulted parameter makes the schema tables a constant evaluation of their own, done when
+// the call is formed: named only in the body, they would be evaluated inside the consteval
+// block and share its operation limit (-fconstexpr-ops-limit counts per outermost evaluation).
+template <schema_source Schema, std::size_t = tables<Schema>.messages.size()>
 consteval void define_messages() {
     const schema_tables& t = tables<Schema>;
     for (const std::uint32_t idx : t.definition_order) {

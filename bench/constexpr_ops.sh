@@ -28,8 +28,8 @@ work=$(mktemp -d)
 flags=(-std=c++26 -fsyntax-only -I "$repo/include" ${CXXFLAGS:-})
 case $stage in tables|define) flags+=(-freflection) ;; esac
 ok() { "${CXX:-g++}" "${flags[@]}" "-fconstexpr-ops-limit=$1" "$work/tu.cpp" > /dev/null 2>&1; }
-hi=33554432
-if ! ok $hi; then echo "$shape $n $stage: above the default limit $hi"; rm -rf "$work"; exit 0; fi
+hi=${MAX:-33554432}  # GCC's default limit; MAX raises the ceiling to count past it
+if ! ok $hi; then echo "$shape $n $stage: above $hi"; rm -rf "$work"; exit 0; fi
 lo=0
 while [ $((hi - lo)) -gt $((hi / 200 + 1)) ]; do
   mid=$(((lo + hi) / 2))
