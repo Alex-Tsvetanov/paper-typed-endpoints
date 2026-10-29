@@ -81,9 +81,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Toolchain facts (desktop, 2026-10-23)
 
-- GCC 16.2.1 20260810 (`gcc 16.2.1+r23+gd564253eb6c8-1`) in `papers-dev` implements P2996 with
-  `-freflection` (`__cpp_impl_reflection` 202603L) and `#embed` (`__cpp_pp_embed` 202502L). It is a
-  released compiler. GCC 16 refuses `^^std::int32_t`; reflect such types through a template.
+- GCC 16 (`papers-dev` 16.2.1, pinned 16.2.0): P2996 with `-freflection` (202603L), `#embed`
+  (202502L). It refuses `^^std::int32_t`; reflect such types through a template.
 - clang 22.1.8 rejects `-freflection`. MSVC 19.51.36246 has no P2996 and no `#embed`.
 - CMake 4.3.2 (Windows) has no C++26 flag for MSVC: the MSVC build uses C++23.
 - MinGW-w64 GCC 16 on the desktop (Alex decides 1, probe passed 2026-10-23):
