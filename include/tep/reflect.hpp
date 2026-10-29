@@ -198,38 +198,41 @@ struct field_meta {
     bool packed;
 };
 
+// Names and paths are offsets of NUL-terminated strings in schema_tables::names (see table_string):
+// all strings are promoted to static storage once, and define_static_array refuses pointers into
+// the middle of a promoted string.
 struct message_meta {
-    const char* full_name;
+    std::uint32_t full_name;
     std::uint32_t first_field;
     std::uint32_t field_count;
 };
 
 struct enum_meta {
-    const char* full_name;
+    std::uint32_t full_name;
     std::uint32_t first_value;
     std::uint32_t value_count;
 };
 
 struct enum_value_meta {
-    const char* name;
+    std::uint32_t name;
     std::int32_t number;
 };
 
 struct rpc_meta {
-    const char* name;  // method name
-    const char* path;  // "/package.Service/Method"
+    std::uint32_t name;  // method name
+    std::uint32_t path;  // "/package.Service/Method"
     std::uint32_t request;
     std::uint32_t response;
 };
 
 struct service_meta {
-    const char* full_name;
+    std::uint32_t full_name;
     std::uint32_t first_rpc;
     std::uint32_t rpc_count;
 };
 
 struct schema_tables {
-    const char* names;  // every C++ member name, concatenated
+    const char* names;  // every C++ member name (offset and size) and every name and path of the metadata
     std::span<const message_meta> messages;
     std::span<const field_meta> fields;
     std::span<const std::uint32_t> definition_order;
@@ -239,6 +242,11 @@ struct schema_tables {
     std::span<const rpc_meta> rpcs;
 };
 
+// A name or path of the metadata, by its offset.
+[[nodiscard]] constexpr const char* table_string(const schema_tables& t, std::uint32_t at) noexcept {
+    return t.names + at;
+}
+
 namespace detail {
 
 consteval schema_tables build_tables(std::string_view text) {
@@ -246,62 +254,118 @@ consteval schema_tables build_tables(std::string_view text) {
     if (!parsed) fail(format_error(parsed.error()));
     const schema::file& f = *parsed;
 
-    // Sized up front and written through pointers: in constant evaluation a push_back that grows
-    // costs several times a plain store.
+    // Every string of the tables lives in one static string, promoted once: the member names
+    // (offset and size) and the NUL-terminated names and rpc paths the metadata points into.
+    // Buffers are sized up front and written through pointers: in constant evaluation a push_back
+    // that grows costs several times a plain store, and each promotion has a cost of its own.
     std::size_t field_count = 0;
-    std::size_t name_bytes = 0;
+    std::size_t value_count = 0;
+    std::size_t rpc_count = 0;
+    std::size_t bytes = 0;
     for (const auto& m : f.messages) {
         field_count += m.fields.size();
-        for (const auto& fd : m.fields) name_bytes += fd.name.size() + 1;
+        bytes += m.full_name.size() + 1;
+        for (const auto& fd : m.fields) bytes += fd.name.size() + 1;
     }
-    std::vector<message_meta> messages;
-    messages.reserve(f.messages.size());
+    for (const auto& e : f.enums) {
+        value_count += e.values.size();
+        bytes += e.full_name.size() + 1;
+        for (const auto& v : e.values) bytes += v.name.size() + 1;
+    }
+    for (const auto& s : f.services) {
+        rpc_count += s.rpcs.size();
+        bytes += s.full_name.size() + 1;
+        for (const auto& rp : s.rpcs) bytes += 2 * rp.name.size() + s.full_name.size() + 4;
+    }
+    std::string strings(bytes, '\0');
+    char* const begin = strings.data();
+    char* w = begin;
+    const auto put = [&](std::string_view v) {
+        const auto at = static_cast<std::uint32_t>(w - begin);
+        const char* c = v.data();
+        for (const char* const e = c + v.size(); c != e; ++c) *w++ = *c;
+        return at;
+    };
+    // Offsets of the terminated strings, in the order the metadata is built below.
+    std::vector<std::uint32_t> offsets(f.messages.size() + f.enums.size() + value_count + f.services.size() +
+                                       2 * rpc_count);
+    std::uint32_t* at = offsets.data();
     std::vector<field_meta> fields(field_count);
     field_meta* out = fields.data();
-    // Member names go into one static string. Escaping a keyword cannot make two names equal:
-    // the only collision would be `x` next to `x_`, and the proto3 JSON-name check rejects that
-    // pair (both have the JSON name x) before this point.
-    std::string names(name_bytes, '\0');
-    char* const names_begin = names.data();
-    char* w = names_begin;
     for (const auto& m : f.messages) {
-        messages.push_back({std::define_static_string(m.full_name), static_cast<std::uint32_t>(out - fields.data()),
-                            static_cast<std::uint32_t>(m.fields.size())});
+        *at++ = put(m.full_name);
+        *w++ = '\0';
+        // Escaping a keyword cannot make two member names equal: the only collision would be `x`
+        // next to `x_`, and the proto3 JSON-name check rejects that pair (both have the JSON name
+        // x) before this point.
         for (const auto& fd : m.fields) {
-            const auto offset = static_cast<std::uint32_t>(w - names_begin);
-            const char* c = fd.name.data();
-            for (const char* const e = c + fd.name.size(); c != e; ++c) *w++ = *c;
+            const std::uint32_t offset = put(fd.name);
             if (is_keyword(fd.name)) *w++ = '_';
-            *out++ = {offset, static_cast<std::uint32_t>(w - names_begin) - offset, fd.number, fd.kind, fd.type,
+            *out++ = {offset, static_cast<std::uint32_t>(w - begin) - offset, fd.number, fd.kind, fd.type,
                       fd.type_index, fd.repeated, fd.packed};
         }
     }
-    names.resize(static_cast<std::size_t>(w - names_begin));
-    std::vector<enum_meta> enums;
-    std::vector<enum_value_meta> values;
     for (const auto& e : f.enums) {
-        enums.push_back({std::define_static_string(e.full_name), static_cast<std::uint32_t>(values.size()),
-                         static_cast<std::uint32_t>(e.values.size())});
-        for (const auto& v : e.values) values.push_back({std::define_static_string(v.name), v.number});
+        *at++ = put(e.full_name);
+        *w++ = '\0';
+        for (const auto& v : e.values) {
+            *at++ = put(v.name);
+            *w++ = '\0';
+        }
     }
-    std::vector<service_meta> services;
-    std::vector<rpc_meta> rpcs;
     for (const auto& s : f.services) {
-        services.push_back({std::define_static_string(s.full_name), static_cast<std::uint32_t>(rpcs.size()),
-                            static_cast<std::uint32_t>(s.rpcs.size())});
-        for (const auto& r : s.rpcs) {
-            std::string path = "/";
-            path.append(s.full_name);
-            path.push_back('/');
-            path.append(r.name);
-            rpcs.push_back({std::define_static_string(r.name), std::define_static_string(path), r.request,
-                            r.response});
+        *at++ = put(s.full_name);
+        *w++ = '\0';
+        for (const auto& rp : s.rpcs) {
+            *at++ = put(rp.name);
+            *w++ = '\0';
+            *at++ = static_cast<std::uint32_t>(w - begin);  // "/package.Service/Method"
+            *w++ = '/';
+            (void)put(s.full_name);
+            *w++ = '/';
+            (void)put(rp.name);
+            *w++ = '\0';
+        }
+    }
+    strings.resize(static_cast<std::size_t>(w - begin));
+
+    const std::uint32_t* off = offsets.data();
+    std::vector<message_meta> messages(f.messages.size());
+    std::uint32_t first = 0;
+    for (std::size_t i = 0; i < messages.size(); ++i) {
+        const auto count = static_cast<std::uint32_t>(f.messages[i].fields.size());
+        messages[i] = {*off++, first, count};
+        first += count;
+    }
+    std::vector<enum_meta> enums(f.enums.size());
+    std::vector<enum_value_meta> values(value_count);
+    enum_value_meta* vo = values.data();
+    for (std::size_t i = 0; i < enums.size(); ++i) {
+        const auto& e = f.enums[i];
+        enums[i] = {*off++, static_cast<std::uint32_t>(vo - values.data()),
+                    static_cast<std::uint32_t>(e.values.size())};
+        for (const auto& v : e.values) *vo++ = {*off++, v.number};
+    }
+    std::vector<service_meta> services(f.services.size());
+    std::vector<rpc_meta> rpcs(rpc_count);
+    rpc_meta* ro = rpcs.data();
+    for (std::size_t i = 0; i < services.size(); ++i) {
+        const auto& s = f.services[i];
+        services[i] = {*off++, static_cast<std::uint32_t>(ro - rpcs.data()),
+                       static_cast<std::uint32_t>(s.rpcs.size())};
+        for (const auto& rp : s.rpcs) {
+            const std::uint32_t name = *off++;
+            *ro++ = {name, *off++, rp.request, rp.response};
         }
     }
     return schema_tables{
-        std::define_static_string(names),   std::define_static_array(messages), std::define_static_array(fields),
-        std::define_static_array(f.definition_order), std::define_static_array(enums),
-        std::define_static_array(values),   std::define_static_array(services),
+        std::define_static_string(strings),
+        std::define_static_array(messages),
+        std::define_static_array(fields),
+        std::define_static_array(f.definition_order),
+        std::define_static_array(enums),
+        std::define_static_array(values),
+        std::define_static_array(services),
         std::define_static_array(rpcs),
     };
 }
@@ -369,14 +433,16 @@ consteval std::meta::info member_type(const field_meta& f) {
 template <class Schema>
 consteval std::uint32_t find_message(std::string_view full) {
     for (std::size_t i = 0; i < tables<Schema>.messages.size(); ++i)
-        if (std::string_view(tables<Schema>.messages[i].full_name) == full) return static_cast<std::uint32_t>(i);
+        if (std::string_view(table_string(tables<Schema>, tables<Schema>.messages[i].full_name)) == full)
+            return static_cast<std::uint32_t>(i);
     fail("tep: the schema has no message named '" + std::string(full) + "'");
 }
 
 template <class Schema>
 consteval std::uint32_t find_service(std::string_view full) {
     for (std::size_t i = 0; i < tables<Schema>.services.size(); ++i)
-        if (std::string_view(tables<Schema>.services[i].full_name) == full) return static_cast<std::uint32_t>(i);
+        if (std::string_view(table_string(tables<Schema>, tables<Schema>.services[i].full_name)) == full)
+            return static_cast<std::uint32_t>(i);
     fail("tep: the schema has no service named '" + std::string(full) + "'");
 }
 
@@ -387,10 +453,10 @@ consteval std::int32_t find_enum_value(std::string_view full) {
     const std::string_view enum_name = full.substr(0, dot);
     const std::string_view value_name = full.substr(dot + 1);
     for (const auto& e : tables<Schema>.enums) {
-        if (std::string_view(e.full_name) != enum_name) continue;
+        if (std::string_view(table_string(tables<Schema>, e.full_name)) != enum_name) continue;
         for (std::uint32_t k = 0; k < e.value_count; ++k) {
             const auto& v = tables<Schema>.enum_values[e.first_value + k];
-            if (std::string_view(v.name) == value_name) return v.number;
+            if (std::string_view(table_string(tables<Schema>, v.name)) == value_name) return v.number;
         }
     }
     fail("tep: the schema has no enum value named '" + std::string(full) + "'");
@@ -854,23 +920,23 @@ constexpr bool operator==(const T& a, const T& b) {
 
 namespace detail {
 
-consteval std::meta::info find_handler(std::meta::info impl, const rpc_meta& r, std::string_view service) {
+consteval std::meta::info find_handler(std::meta::info impl, std::string_view name, std::string_view service) {
     std::meta::info found{};
     int count = 0;
     for (const auto m : std::meta::members_of(impl, std::meta::access_context::unchecked())) {
         if (!std::meta::is_function(m) || !std::meta::has_identifier(m)) continue;
-        if (std::meta::identifier_of(m) != std::string_view(r.name)) continue;
+        if (std::meta::identifier_of(m) != name) continue;
         if (!std::meta::is_public(m))
-            fail("tep: handler member function '" + std::string(r.name) + "' for rpc " + std::string(service) + "." +
-                 std::string(r.name) + " is not public");
+            fail("tep: handler member function '" + std::string(name) + "' for rpc " + std::string(service) + "." +
+                 std::string(name) + " is not public");
         found = m;
         ++count;
     }
     if (count == 0)
         fail("tep: handler type '" + std::string(std::meta::display_string_of(impl)) +
-             "' has no member function named '" + std::string(r.name) + "' for rpc " + std::string(service) + "." +
-             std::string(r.name));
-    if (count > 1) fail("tep: handler member function '" + std::string(r.name) + "' is overloaded");
+             "' has no member function named '" + std::string(name) + "' for rpc " + std::string(service) + "." +
+             std::string(name));
+    if (count > 1) fail("tep: handler member function '" + std::string(name) + "' is overloaded");
     return found;
 }
 
@@ -899,15 +965,17 @@ consteval bool verify_handlers() {
     constexpr service_meta svc = tables<Schema>.services[find_service<Schema>(Service.view())];
     template for (constexpr std::uint32_t k : std::define_static_array(iota(svc.first_rpc, svc.rpc_count))) {
         constexpr rpc_meta r = tables<Schema>.rpcs[k];
-        constexpr std::meta::info h = find_handler(^^Impl, r, Service.view());
+        constexpr std::string_view name = table_string(tables<Schema>, r.name);
+        constexpr std::meta::info h = find_handler(^^Impl, name, Service.view());
         using Req = message<Schema, r.request>;
         using Resp = message<Schema, r.response>;
         if constexpr (!returns_response<Impl, Req, Resp, h> && !fills_response<Impl, Req, Resp, h>) {
-            fail("tep: handler member function '" + std::string(r.name) + "' must be 'Response " +
-                 std::string(r.name) + "(const Request&)' or 'tep::grpc::status " + std::string(r.name) +
+            fail("tep: handler member function '" + std::string(name) + "' must be 'Response " + std::string(name) +
+                 "(const Request&)' or 'tep::grpc::status " + std::string(name) +
                  "(const Request&, Response&)' with Request " +
-                 std::string(tables<Schema>.messages[r.request].full_name) + " and Response " +
-                 std::string(tables<Schema>.messages[r.response].full_name));
+                 std::string(table_string(tables<Schema>, tables<Schema>.messages[r.request].full_name)) +
+                 " and Response " +
+                 std::string(table_string(tables<Schema>, tables<Schema>.messages[r.response].full_name)));
         }
     }
     return true;
@@ -928,8 +996,8 @@ public:
 
     [[nodiscard]] static constexpr std::size_t method_count() noexcept { return service.rpc_count; }
     [[nodiscard]] static constexpr std::string_view path(std::size_t i) noexcept {
-        return i < service.rpc_count ? std::string_view(tables<Schema>.rpcs[service.first_rpc + i].path)
-                                     : std::string_view{};
+        if (i >= service.rpc_count) return {};
+        return table_string(tables<Schema>, tables<Schema>.rpcs[service.first_rpc + i].path);
     }
 
     // Runs one unary call. `request` is the message payload without the gRPC prefix. On ok,
@@ -944,7 +1012,7 @@ public:
             bool found = false;
             template for (constexpr std::uint32_t k : rpc_indices) {
                 constexpr rpc_meta r = tables<Schema>.rpcs[k];
-                if (!found && method_path == std::string_view(r.path)) {
+                if (!found && method_path == std::string_view(table_string(tables<Schema>, r.path))) {
                     found = true;
                     st = call<k>(request, response);
                 }
@@ -980,7 +1048,8 @@ private:
     template <std::uint32_t K>
     grpc::status call(std::span<const std::byte> request, std::vector<std::byte>& response) {
         constexpr rpc_meta r = tables<Schema>.rpcs[K];
-        constexpr std::meta::info h = detail::find_handler(^^Impl, r, Service.view());
+        constexpr std::meta::info h =
+            detail::find_handler(^^Impl, table_string(tables<Schema>, r.name), Service.view());
         using Req = message<Schema, r.request>;
         using Resp = message<Schema, r.response>;
         Req req{};

@@ -1328,7 +1328,7 @@ public:
 private:
     file& f_;
     error err_{};
-    std::vector<name_entry> names_;     // every name of every scope, in one hash table
+    fixed_buffer<name_entry> names_;    // every name of every scope, in one hash table
     std::vector<std::uint32_t> slots_;  // open addressing: an index into names_ plus one; 0 is empty
     std::uint32_t mask_ = 0;
     std::uint32_t root_ = 0;            // scope ids, see name_entry
@@ -1533,7 +1533,7 @@ private:
             if (crowd[i] != 0) count += ms[i].fields.size();
         for (const service& sv : f_.services) count += 1 + sv.rpcs.size();
 
-        names_.reserve(count);
+        names_ = fixed_buffer<name_entry>(count);
         const auto add = [&](std::string_view name, std::uint32_t scope, symbol kind, std::uint32_t index,
                              location loc) { names_.push_back({name, scope, scoped_hash(scope, name), kind, index, loc}); };
         const auto scope_of = [&](std::uint32_t parent) { return parent == npos ? file_scope_ : parent; };
@@ -1713,23 +1713,24 @@ private:
             const field* next;
             const field* end;
         };
-        std::vector<frame> stack;
+        fixed_buffer<frame> stack(n);  // a message enters at most once
         const auto enter = [&](std::uint32_t m) {
             st[m] = 1;
             const field* const fs = ms[m].fields.data();
             stack.push_back({m, fs, fs + ms[m].fields.size()});
         };
-        f_.definition_order.reserve(n);
+        f_.definition_order.resize(n);
+        std::uint32_t* order = f_.definition_order.data();
         for (std::uint32_t root = 0; root < n; ++root) {
             if (st[root] != 0) continue;
             enter(root);
-            while (!stack.empty()) {
-                frame& top = stack.back();
+            while (stack.size() != 0) {
+                frame& top = stack.data()[stack.size() - 1];
                 while (top.next != top.end && top.next->kind != field_kind::message) ++top.next;
                 if (top.next == top.end) {
                     st[top.msg] = 2;
-                    f_.definition_order.push_back(top.msg);
-                    stack.pop_back();
+                    *order++ = top.msg;
+                    stack.truncate(stack.size() - 1);
                     continue;
                 }
                 const field& fd = *top.next++;
