@@ -41,16 +41,16 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Known performance items, unmeasured: nested message sizes are recomputed while writing (no
   size cache); decode dispatch is a linear chain over fields. Both wait for laptop probes.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
-  is 33,554,432 operations per evaluation, and the schema tables are one evaluation.
-  `bench/constexpr_ops.sh` bisects the limit to count a stage's operations (deterministic, not
-  timing). Whole pipeline (parse, tables, define) per field, `wide 256`: 72k at e1907b9, 52k
-  after the review fixes, 22k after two optimization passes (pointer lexer, `sv` keywords, one
-  names string, O(n) duplicate checks). `many 256`: 36k per field; each message plus rpc costs
-  about 80k more (parser and checker), the next target.
-  Desktop pass/fail ladder under default limits (`-O2`, no timing): `wide` passes 1024 and fails
-  2048 (was 256 / 512); `many` passes 512 and fails 1024 (just over: about 4 x 9.2M).
-  Target: the 4096-field ladder under default limits, or a declared secondary curve with raised
-  limits above the default ceiling (design note section 4).
+  is 33,554,432 operations per evaluation; the schema tables are one evaluation.
+  `bench/constexpr_ops.sh` bisects the limit to count operations (deterministic, not timing).
+  Per field: `wide 256` 72k at e1907b9, 17k at 531eca8; `many 256` (32 messages, 32 rpcs) 28k.
+  Calibration: a small `std::string` built and moved costs about 9.5k, a vector push 0.9k, a
+  `string_view` compare 50; so names are views now. Ladder under default limits (pass/fail, no
+  timing, 531eca8): both shapes pass 1024 fields and fail 2048. Target: 4096, or a declared
+  secondary curve with raised limits. Next: the token vector (about 0.9k per token).
+- In progress (2026-10-29): dev-image GCC 16.2.0 build into `D:/Dev/toolchains/gcc-16.2.0-linux`
+  (request 4); `bench/gen_schema.py protoc` emits the G_P user program (untested until the pinned
+  protobuf is built with GCC 16.2.0).
 
 ## Build and test (desktop, functional only; no timing)
 
