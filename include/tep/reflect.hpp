@@ -162,8 +162,25 @@ inline constexpr std::string_view cpp_keywords[] = {
     "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
 };
 
+// Bit n of lengths[c - 'a'] is set when a keyword of length n starts with c. Most field names
+// fail this test and skip the search.
+struct keyword_index {
+    std::uint32_t lengths[26];
+};
+
+consteval keyword_index make_keyword_index() {
+    keyword_index k{};
+    for (const std::string_view w : cpp_keywords) k.lengths[w[0] - 'a'] |= std::uint32_t{1} << w.size();
+    return k;
+}
+
+inline constexpr keyword_index keyword_lengths = make_keyword_index();
+
 // A field named like a C++ keyword gets a trailing underscore, as protoc's C++ output does.
 consteval bool is_keyword(std::string_view n) {
+    const char c = n.data()[0];  // names are never empty
+    if (c < 'a' || c > 'z' || n.size() > 31 || ((keyword_lengths.lengths[c - 'a'] >> n.size()) & 1u) == 0)
+        return false;
     return std::binary_search(std::begin(cpp_keywords), std::end(cpp_keywords), n);
 }
 
@@ -229,24 +246,37 @@ consteval schema_tables build_tables(std::string_view text) {
     if (!parsed) fail(format_error(parsed.error()));
     const schema::file& f = *parsed;
 
+    // Sized up front and written through pointers: in constant evaluation a push_back that grows
+    // costs several times a plain store.
+    std::size_t field_count = 0;
+    std::size_t name_bytes = 0;
+    for (const auto& m : f.messages) {
+        field_count += m.fields.size();
+        for (const auto& fd : m.fields) name_bytes += fd.name.size() + 1;
+    }
     std::vector<message_meta> messages;
-    std::vector<field_meta> fields;
+    messages.reserve(f.messages.size());
+    std::vector<field_meta> fields(field_count);
+    field_meta* out = fields.data();
     // Member names go into one static string. Escaping a keyword cannot make two names equal:
     // the only collision would be `x` next to `x_`, and the proto3 JSON-name check rejects that
     // pair (both have the JSON name x) before this point.
-    std::string names;
+    std::string names(name_bytes, '\0');
+    char* const names_begin = names.data();
+    char* w = names_begin;
     for (const auto& m : f.messages) {
-        const std::size_t first = fields.size();
-        messages.push_back({std::define_static_string(m.full_name), static_cast<std::uint32_t>(first),
+        messages.push_back({std::define_static_string(m.full_name), static_cast<std::uint32_t>(out - fields.data()),
                             static_cast<std::uint32_t>(m.fields.size())});
         for (const auto& fd : m.fields) {
-            const auto offset = static_cast<std::uint32_t>(names.size());
-            names.append(fd.name);
-            if (is_keyword(fd.name)) names.push_back('_');
-            fields.push_back({offset, static_cast<std::uint32_t>(names.size()) - offset, fd.number, fd.kind, fd.type,
-                              fd.type_index, fd.repeated, fd.packed});
+            const auto offset = static_cast<std::uint32_t>(w - names_begin);
+            const char* c = fd.name.data();
+            for (const char* const e = c + fd.name.size(); c != e; ++c) *w++ = *c;
+            if (is_keyword(fd.name)) *w++ = '_';
+            *out++ = {offset, static_cast<std::uint32_t>(w - names_begin) - offset, fd.number, fd.kind, fd.type,
+                      fd.type_index, fd.repeated, fd.packed};
         }
     }
+    names.resize(static_cast<std::size_t>(w - names_begin));
     std::vector<enum_meta> enums;
     std::vector<enum_value_meta> values;
     for (const auto& e : f.enums) {

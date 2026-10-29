@@ -357,6 +357,31 @@ private:
         default: return false;
     }
 }
+// Character classes for the lexer's loops: one table lookup per character instead of a chain of
+// comparisons and calls.
+inline constexpr std::uint8_t cls_space = 1;  // blank other than a newline
+inline constexpr std::uint8_t cls_alpha = 2;  // starts and continues an identifier
+inline constexpr std::uint8_t cls_digit = 4;
+inline constexpr std::uint8_t cls_symbol = 8;
+inline constexpr std::uint8_t cls_alnum = cls_alpha | cls_digit;
+
+struct char_classes {
+    std::uint8_t of[256];
+};
+
+[[nodiscard]] constexpr char_classes make_char_classes() noexcept {
+    char_classes t{};
+    for (int i = 0; i < 256; ++i) {
+        const auto c = static_cast<char>(i);
+        const bool blank = c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v';
+        t.of[i] = static_cast<std::uint8_t>((blank ? cls_space : 0) | (is_alpha(c) ? cls_alpha : 0) |
+                                            (is_digit(c) ? cls_digit : 0) | (is_symbol_char(c) ? cls_symbol : 0));
+    }
+    return t;
+}
+
+inline constexpr char_classes char_class = make_char_classes();
+
 [[nodiscard]] constexpr int hex_value(char c) noexcept {
     if (is_digit(c)) return c - '0';
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
@@ -410,26 +435,56 @@ private:
 // one character, so the buffer holds the source's length plus the end token.
 [[nodiscard]] constexpr std::expected<detail::fixed_buffer<token>, error> tokenize(std::string_view src) {
     detail::fixed_buffer<token> out(src.size() + 1);
+    const std::uint8_t* const cls = detail::char_class.of;
     const char* const end = src.data() + src.size();
     const char* p = src.data();
     const char* line_start = p;
     std::uint32_t line = 1;
-    const auto loc_at = [&](const char* q) {
-        return location{line, static_cast<std::uint32_t>(q - line_start) + 1};
-    };
     const auto view = [](const char* a, const char* b) {
         return std::string_view(a, static_cast<std::size_t>(b - a));
     };
     while (p != end) {
         const char c = *p;
+        const std::uint8_t k = cls[static_cast<unsigned char>(c)];
+        if ((k & detail::cls_space) != 0) {
+            ++p;
+            continue;
+        }
         if (c == '\n') {
             ++p;
             ++line;
             line_start = p;
             continue;
         }
-        if (c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v') {
+        const char* const b = p;
+        const location start{line, static_cast<std::uint32_t>(p - line_start) + 1};
+        if ((k & detail::cls_alpha) != 0) {
+            do {
+                ++p;
+            } while (p != end && (cls[static_cast<unsigned char>(*p)] & detail::cls_alnum) != 0);
+            out.push_back({tok::ident, view(b, p), start});
+            continue;
+        }
+        if ((k & detail::cls_digit) != 0 ||
+            (c == '.' && end - p > 1 && (cls[static_cast<unsigned char>(p[1])] & detail::cls_digit) != 0)) {
+            const bool hex = end - b > 1 && b[0] == '0' && (b[1] == 'x' || b[1] == 'X');
+            while (p != end) {
+                const char d = *p;
+                if ((cls[static_cast<unsigned char>(d)] & detail::cls_alnum) != 0 || d == '.') {
+                    ++p;
+                } else if ((d == '+' || d == '-') && !hex && (p[-1] == 'e' || p[-1] == 'E')) {
+                    ++p;
+                } else {
+                    break;
+                }
+            }
+            const std::string_view text = view(b, p);
+            out.push_back({detail::is_integer_literal(text) ? tok::integer : tok::floating, text, start});
+            continue;
+        }
+        if ((k & detail::cls_symbol) != 0) {
             ++p;
+            out.push_back({tok::symbol, view(b, p), start});
             continue;
         }
         if (c == '/' && end - p > 1 && p[1] == '/') {
@@ -437,7 +492,6 @@ private:
             continue;
         }
         if (c == '/' && end - p > 1 && p[1] == '*') {
-            const location start = loc_at(p);
             p += 2;
             bool closed = false;
             while (p != end) {
@@ -453,31 +507,6 @@ private:
                 ++p;
             }
             if (!closed) return std::unexpected(error{errc::unterminated_comment, start, "/*"});
-            continue;
-        }
-        const char* const b = p;
-        const location start = loc_at(p);
-        if (detail::is_alpha(c)) {
-            do {
-                ++p;
-            } while (p != end && detail::is_alnum(*p));
-            out.push_back({tok::ident, view(b, p), start});
-            continue;
-        }
-        if (detail::is_digit(c) || (c == '.' && end - p > 1 && detail::is_digit(p[1]))) {
-            const bool hex = end - b > 1 && b[0] == '0' && (b[1] == 'x' || b[1] == 'X');
-            while (p != end) {
-                const char d = *p;
-                if (detail::is_alnum(d) || d == '.') {
-                    ++p;
-                } else if ((d == '+' || d == '-') && !hex && (p[-1] == 'e' || p[-1] == 'E')) {
-                    ++p;
-                } else {
-                    break;
-                }
-            }
-            const std::string_view text = view(b, p);
-            out.push_back({detail::is_integer_literal(text) ? tok::integer : tok::floating, text, start});
             continue;
         }
         if (c == '"' || c == '\'') {
@@ -505,14 +534,9 @@ private:
             ++p;
             continue;
         }
-        if (detail::is_symbol_char(c)) {
-            ++p;
-            out.push_back({tok::symbol, view(b, p), start});
-            continue;
-        }
         return std::unexpected(error{errc::invalid_character, start, view(b, b + 1)});
     }
-    out.push_back({tok::end, {}, loc_at(p)});
+    out.push_back({tok::end, {}, location{line, static_cast<std::uint32_t>(p - line_start) + 1}});
     return out;
 }
 
@@ -1661,13 +1685,17 @@ private:
 
     // An explicit [packed] is only valid on a repeated numeric, bool or enum field.
     [[nodiscard]] constexpr bool check_packed() {
-        for (auto& m : f_.messages) {
-            for (auto& fd : m.fields) {
+        for (message& m : f_.messages) {
+            field* const fe = m.fields.data() + m.fields.size();
+            for (field* fd = m.fields.data(); fd != fe; ++fd) {
+                if (!fd->repeated) {
+                    if (fd->packed_option != -1) return fail(errc::packed_on_non_packable, fd->loc, fd->name);
+                    continue;
+                }
                 const bool packable =
-                    fd.kind == field_kind::enumeration || (fd.kind == field_kind::scalar && is_packable(fd.type));
-                if (fd.packed_option != -1 && !(fd.repeated && packable))
-                    return fail(errc::packed_on_non_packable, fd.loc, fd.name);
-                fd.packed = fd.repeated && packable && fd.packed_option != 0;
+                    fd->kind == field_kind::enumeration || (fd->kind == field_kind::scalar && is_packable(fd->type));
+                if (fd->packed_option != -1 && !packable) return fail(errc::packed_on_non_packable, fd->loc, fd->name);
+                fd->packed = packable && fd->packed_option != 0;
             }
         }
         return true;
