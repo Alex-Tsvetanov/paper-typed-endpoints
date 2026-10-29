@@ -1049,22 +1049,24 @@ private:
 // ---------------------------------------------------------------------------------------------
 // Semantic checks
 
-enum class symbol : std::uint8_t { message, enumeration, service, package };
+enum class symbol : std::uint8_t { message, enumeration, service, package, field, enum_value, rpc };
 
+// One name in one scope. Scope ids: a message's is its index; package component k's is
+// messages.size() + k; then the root; then one per service, which holds its rpc names.
 struct name_entry {
-    std::string_view full;  // views a full_name string or the package, both owned by the file
+    std::string_view name;  // the simple name, viewing the source or file::package
+    std::uint32_t scope = 0;
+    std::uint32_t hash = 0;
     symbol kind = symbol::message;
-    std::uint32_t index = npos;
+    std::uint32_t index = npos;  // into file::messages, enums or services; a package component's scope id
+    location loc{};
 };
 
 [[nodiscard]] constexpr bool is_type(symbol k) noexcept { return k == symbol::message || k == symbol::enumeration; }
-
-// A name inside one scope (a message, the file, or a service), for collision checks.
-struct scoped_name {
-    std::uint32_t scope = 0;
-    std::string_view name;  // views the source
-    location loc{};
-};
+// protoc's aggregates: a dotted name may continue inside them.
+[[nodiscard]] constexpr bool is_aggregate(symbol k) noexcept {
+    return k == symbol::message || k == symbol::enumeration || k == symbol::service || k == symbol::package;
+}
 
 [[nodiscard]] constexpr bool before(location a, location b) noexcept {
     return a.line != b.line ? a.line < b.line : a.column < b.column;
@@ -1077,13 +1079,29 @@ struct scoped_name {
     return c >= 'a' && c <= 'z' ? static_cast<char>(c - 'a' + 'A') : c;
 }
 
-[[nodiscard]] constexpr std::uint32_t fnv1a(std::string_view s) noexcept {
-    std::uint32_t h = 2166136261u;
-    for (const char c : s) {
-        h ^= static_cast<unsigned char>(c);
+// Hashing and equality walk pointers: in constant evaluation every call and every checked index
+// is charged, so string_view's operator== (through char_traits) costs several times more.
+[[nodiscard]] constexpr std::uint32_t fnv1a(std::uint32_t h, std::string_view s) noexcept {
+    const char* p = s.data();
+    for (const char* const e = p + s.size(); p != e; ++p) {
+        h ^= static_cast<unsigned char>(*p);
         h *= 16777619u;
     }
     return h;
+}
+inline constexpr std::uint32_t fnv_basis = 2166136261u;
+
+[[nodiscard]] constexpr std::uint32_t scoped_hash(std::uint32_t scope, std::string_view name) noexcept {
+    return fnv1a(fnv_basis ^ (scope * 2654435761u), name);
+}
+
+[[nodiscard]] constexpr bool same(std::string_view a, std::string_view b) noexcept {
+    if (a.size() != b.size()) return false;
+    const char* p = a.data();
+    const char* q = b.data();
+    for (const char* const e = p + a.size(); p != e; ++p, ++q)
+        if (*p != *q) return false;
+    return true;
 }
 
 // The index of the first field whose name an earlier field already has, or npos. One pass over
@@ -1096,15 +1114,18 @@ struct scoped_name {
     while (size < 2 * fields.size()) size *= 2;
     slots.assign(size, 0);
     const std::size_t mask = size - 1;
-    for (std::uint32_t k = 0; k < fields.size(); ++k) {
-        std::size_t i = fnv1a(fields[k].name) & mask;
+    const field* const fs = fields.data();
+    std::uint32_t* const sl = slots.data();
+    const auto count = static_cast<std::uint32_t>(fields.size());
+    for (std::uint32_t k = 0; k < count; ++k) {
+        std::size_t i = fnv1a(fnv_basis, fs[k].name) & mask;
         std::size_t probes = 0;
-        while (slots[i] != 0) {
-            if (fields[slots[i] - 1].name == fields[k].name) return k;
+        while (sl[i] != 0) {
+            if (same(fs[sl[i] - 1].name, fs[k].name)) return k;
             if (++probes > max_probe) {
                 std::vector<std::pair<std::string_view, std::uint32_t>> sorted;
                 sorted.reserve(fields.size());
-                for (std::uint32_t j = 0; j < fields.size(); ++j) sorted.emplace_back(fields[j].name, j);
+                for (std::uint32_t j = 0; j < count; ++j) sorted.emplace_back(fs[j].name, j);
                 std::sort(sorted.begin(), sorted.end());
                 std::uint32_t first = npos;
                 for (std::size_t j = 1; j < sorted.size(); ++j)
@@ -1114,7 +1135,7 @@ struct scoped_name {
             }
             i = (i + 1) & mask;
         }
-        slots[i] = k + 1;
+        sl[i] = k + 1;
     }
     return npos;
 }
@@ -1183,9 +1204,9 @@ public:
     constexpr explicit checker(file& f) : f_(f) {}
 
     [[nodiscard]] constexpr bool run() {
-        if (!check_messages() || !check_enums() || !check_scopes()) return false;
+        if (!check_messages() || !check_enums()) return false;
         build_full_names();
-        build_names();
+        if (!build_names()) return false;
         return resolve() && check_packed() && order_messages();
     }
 
@@ -1194,7 +1215,11 @@ public:
 private:
     file& f_;
     error err_{};
-    std::vector<name_entry> names_;  // messages, enums, services and package prefixes, by full name
+    std::vector<name_entry> names_;     // every name of every scope, in one hash table
+    std::vector<std::uint32_t> slots_;  // open addressing: an index into names_ plus one; 0 is empty
+    std::uint32_t mask_ = 0;
+    std::uint32_t root_ = 0;            // scope ids, see name_entry
+    std::uint32_t file_scope_ = 0;      // where top-level definitions live
 
     constexpr bool fail(errc code, location loc, std::string_view token) {
         err_ = error{code, loc, token};
@@ -1215,17 +1240,21 @@ private:
     }
 
     [[nodiscard]] constexpr bool check_json_names(const message& m) {
+        const field* const fs = m.fields.data();
+        const field* const fe = fs + m.fields.size();
         bool any_underscore = false;
-        for (const field& fd : m.fields)
-            for (const char c : fd.name) any_underscore = any_underscore || c == '_';
+        for (const field* f = fs; f != fe && !any_underscore; ++f) {
+            const char* c = f->name.data();
+            for (const char* const e = c + f->name.size(); c != e; ++c) any_underscore = any_underscore || *c == '_';
+        }
         if (!any_underscore) return true;  // then every JSON name is the field name, already unique
         std::vector<std::pair<std::string, std::uint32_t>> json;
         json.reserve(m.fields.size());
-        for (std::uint32_t k = 0; k < m.fields.size(); ++k) json.emplace_back(json_name(m.fields[k].name), k);
+        for (std::uint32_t k = 0; k < m.fields.size(); ++k) json.emplace_back(json_name(fs[k].name), k);
         std::sort(json.begin(), json.end());
         for (std::size_t k = 1; k < json.size(); ++k) {
             if (json[k].first == json[k - 1].first) {
-                const field& fd = m.fields[std::max(json[k].second, json[k - 1].second)];
+                const field& fd = fs[std::max(json[k].second, json[k - 1].second)];
                 return fail(errc::json_name_conflict, fd.loc, fd.name);
             }
         }
@@ -1235,30 +1264,36 @@ private:
     [[nodiscard]] constexpr bool check_message(const message& m,
                                                std::vector<std::pair<std::uint32_t, std::uint32_t>>& numbers,
                                                std::vector<std::uint32_t>& slots) {
-        for (const field& fd : m.fields) {
-            if (fd.number >= first_implementation_number && fd.number <= last_implementation_number)
-                return fail(errc::field_number_in_implementation_range, fd.number_loc, fd.number_text);
-            if (in_ranges(m.reserved_ranges, fd.number))
-                return fail(errc::field_number_reserved, fd.number_loc, fd.number_text);
-            if (reserved(m.reserved_names, fd.name)) return fail(errc::field_name_reserved, fd.loc, fd.name);
-        }
+        const field* const fs = m.fields.data();
+        const field* const fe = fs + m.fields.size();
+        const bool any_reserved = !m.reserved_ranges.empty() || !m.reserved_names.empty();
         // Field numbers usually increase in declaration order, and then none repeats.
         bool increasing = true;
-        for (std::size_t k = 1; k < m.fields.size() && increasing; ++k)
-            increasing = m.fields[k - 1].number < m.fields[k].number;
+        std::uint32_t previous = 0;
+        for (const field* f = fs; f != fe; ++f) {
+            if (f->number >= first_implementation_number && f->number <= last_implementation_number)
+                return fail(errc::field_number_in_implementation_range, f->number_loc, f->number_text);
+            if (any_reserved) {
+                if (in_ranges(m.reserved_ranges, f->number))
+                    return fail(errc::field_number_reserved, f->number_loc, f->number_text);
+                if (reserved(m.reserved_names, f->name)) return fail(errc::field_name_reserved, f->loc, f->name);
+            }
+            increasing = increasing && f->number > previous;
+            previous = f->number;
+        }
         if (!increasing) {
             numbers.clear();
-            for (std::uint32_t k = 0; k < m.fields.size(); ++k) numbers.emplace_back(m.fields[k].number, k);
+            for (std::uint32_t k = 0; k < m.fields.size(); ++k) numbers.emplace_back(fs[k].number, k);
             std::sort(numbers.begin(), numbers.end());
             for (std::size_t k = 1; k < numbers.size(); ++k) {
                 if (numbers[k].first == numbers[k - 1].first) {
-                    const field& fd = m.fields[std::max(numbers[k].second, numbers[k - 1].second)];
+                    const field& fd = fs[std::max(numbers[k].second, numbers[k - 1].second)];
                     return fail(errc::duplicate_field_number, fd.number_loc, fd.number_text);
                 }
             }
         }
         if (const std::uint32_t later = first_duplicate_name(m.fields, slots); later != npos) {
-            const field& fd = m.fields[later];
+            const field& fd = fs[later];
             return fail(errc::duplicate_field_name, fd.loc, fd.name);
         }
         return check_reserved(m.reserved_ranges, m.reserved_names) && check_json_names(m);
@@ -1314,42 +1349,6 @@ private:
         return true;
     }
 
-    // C++-like scoping, as protoc does it: in one scope, nested messages, enums, enum values (in
-    // the scope that holds their enum), services and fields share one namespace; rpc names
-    // share one per service. Fields enter only scopes that hold another kind of name, since
-    // duplicate field names were checked already.
-    [[nodiscard]] constexpr bool check_scopes() {
-        const auto file_scope = static_cast<std::uint32_t>(f_.messages.size());
-        const auto scope_of = [&](std::uint32_t parent) { return parent == npos ? file_scope : parent; };
-        std::vector<scoped_name> names;
-        std::vector<std::uint8_t> crowded(f_.messages.size(), 0);
-        for (const auto& m : f_.messages) {
-            names.push_back({scope_of(m.parent), m.name, m.loc});
-            if (m.parent != npos) crowded[m.parent] = 1;
-        }
-        for (const auto& e : f_.enums) {
-            names.push_back({scope_of(e.parent), e.name, e.loc});
-            for (const auto& v : e.values) names.push_back({scope_of(e.parent), v.name, v.loc});
-            if (e.parent != npos) crowded[e.parent] = 1;
-        }
-        for (std::uint32_t i = 0; i < f_.messages.size(); ++i)
-            if (crowded[i] != 0)
-                for (const auto& fd : f_.messages[i].fields) names.push_back({i, fd.name, fd.loc});
-        for (std::uint32_t s = 0; s < f_.services.size(); ++s) {
-            names.push_back({file_scope, f_.services[s].name, f_.services[s].loc});
-            for (const auto& r : f_.services[s].rpcs) names.push_back({file_scope + 1 + s, r.name, r.loc});
-        }
-        std::sort(names.begin(), names.end(), [](const scoped_name& a, const scoped_name& b) {
-            if (a.scope != b.scope) return a.scope < b.scope;
-            if (a.name != b.name) return a.name < b.name;
-            return before(a.loc, b.loc);
-        });
-        for (std::size_t k = 1; k < names.size(); ++k)
-            if (names[k].scope == names[k - 1].scope && names[k].name == names[k - 1].name)
-                return fail(errc::duplicate_definition, names[k].loc, names[k].name);
-        return true;
-    }
-
     // Full names, built once into one buffer: a message's or an enum's is its parent message's
     // (or the package's) plus a dot and its name; a service's is the package's plus its name.
     // Parents come before their children in the message list.
@@ -1389,105 +1388,183 @@ private:
         for (std::size_t i = 0; i < ns; ++i) f_.services[i].full_name = fill(nm + ne + i, npos, f_.services[i].name);
     }
 
-    constexpr void build_names() {
-        names_.reserve(f_.messages.size() + f_.enums.size() + f_.services.size() + 4);
-        for (std::size_t i = 0; i < f_.messages.size(); ++i)
-            names_.push_back({f_.messages[i].full_name, symbol::message, static_cast<std::uint32_t>(i)});
-        for (std::size_t i = 0; i < f_.enums.size(); ++i)
-            names_.push_back({f_.enums[i].full_name, symbol::enumeration, static_cast<std::uint32_t>(i)});
-        for (std::size_t i = 0; i < f_.services.size(); ++i)
-            names_.push_back({f_.services[i].full_name, symbol::service, static_cast<std::uint32_t>(i)});
+    // C++-like scoping, as protoc does it. Every name goes into one table keyed by (scope, simple
+    // name): package components, messages, enums and enum values (a value lives beside its enum),
+    // services, rpcs (one scope per service), and the fields of messages that also hold nested
+    // types (duplicate field names were checked already). A name defined twice in a scope is
+    // reported at its second definition; with several, at the earliest such point in the source.
+    // Names crafted to collide in the hash only lengthen probe runs, and the constant-evaluation
+    // limit bounds those.
+    [[nodiscard]] constexpr bool build_names() {
+        const auto nm = static_cast<std::uint32_t>(f_.messages.size());
         const std::string_view pkg = f_.package;
-        for (std::size_t k = 0; k < pkg.size(); ++k)
-            if (pkg[k] == '.') names_.push_back({pkg.substr(0, k), symbol::package, npos});
-        if (!pkg.empty()) names_.push_back({pkg, symbol::package, npos});
-        std::sort(names_.begin(), names_.end(),
-                  [](const name_entry& a, const name_entry& b) { return a.full < b.full; });
-    }
-
-    // Compares a with b1 + '.' + b2 (b2 alone when b1 is empty) in the order of string_view's
-    // operator<, without building the joined name.
-    [[nodiscard]] static constexpr int compare_joined(std::string_view a, std::string_view b1,
-                                                      std::string_view b2) noexcept {
-        const std::size_t nb = b1.empty() ? b2.size() : b1.size() + 1 + b2.size();
-        const std::size_t n = a.size() < nb ? a.size() : nb;
-        for (std::size_t i = 0; i < n; ++i) {
-            char c = '.';
-            if (b1.empty()) {
-                c = b2[i];
-            } else if (i < b1.size()) {
-                c = b1[i];
-            } else if (i > b1.size()) {
-                c = b2[i - b1.size() - 1];
-            }
-            if (a[i] != c) return static_cast<unsigned char>(a[i]) < static_cast<unsigned char>(c) ? -1 : 1;
+        const char* const pkg_data = pkg.data();
+        std::uint32_t parts = 0;
+        if (!pkg.empty()) {
+            parts = 1;
+            for (std::size_t k = 0; k < pkg.size(); ++k) parts += pkg_data[k] == '.' ? 1u : 0u;
         }
-        if (a.size() == nb) return 0;
-        return a.size() < nb ? -1 : 1;
+        root_ = nm + parts;
+        file_scope_ = parts == 0 ? root_ : root_ - 1;
+        const message* const ms = f_.messages.data();
+        std::vector<std::uint8_t> crowded(nm, 0);
+        std::uint8_t* const crowd = crowded.data();
+        std::size_t count = parts + nm;
+        for (std::uint32_t i = 0; i < nm; ++i)
+            if (ms[i].parent != npos) crowd[ms[i].parent] = 1;
+        for (const enumeration& e : f_.enums) {
+            count += 1 + e.values.size();
+            if (e.parent != npos) crowd[e.parent] = 1;
+        }
+        for (std::uint32_t i = 0; i < nm; ++i)
+            if (crowd[i] != 0) count += ms[i].fields.size();
+        for (const service& sv : f_.services) count += 1 + sv.rpcs.size();
+
+        names_.reserve(count);
+        const auto add = [&](std::string_view name, std::uint32_t scope, symbol kind, std::uint32_t index,
+                             location loc) { names_.push_back({name, scope, scoped_hash(scope, name), kind, index, loc}); };
+        const auto scope_of = [&](std::uint32_t parent) { return parent == npos ? file_scope_ : parent; };
+        for (std::uint32_t k = 0, start = 0; k < parts; ++k) {
+            std::uint32_t end = start;
+            while (end < pkg.size() && pkg_data[end] != '.') ++end;
+            add(std::string_view(pkg_data + start, end - start), k == 0 ? root_ : nm + k - 1, symbol::package, nm + k,
+                {});
+            start = end + 1;
+        }
+        for (std::uint32_t i = 0; i < nm; ++i) add(ms[i].name, scope_of(ms[i].parent), symbol::message, i, ms[i].loc);
+        for (std::uint32_t i = 0; i < f_.enums.size(); ++i) {
+            const enumeration& e = f_.enums.data()[i];
+            add(e.name, scope_of(e.parent), symbol::enumeration, i, e.loc);
+            for (const enum_value& v : e.values) add(v.name, scope_of(e.parent), symbol::enum_value, npos, v.loc);
+        }
+        for (std::uint32_t i = 0; i < nm; ++i)
+            if (crowd[i] != 0)
+                for (const field& fd : ms[i].fields) add(fd.name, i, symbol::field, npos, fd.loc);
+        for (std::uint32_t i = 0; i < f_.services.size(); ++i) {
+            const service& sv = f_.services.data()[i];
+            add(sv.name, file_scope_, symbol::service, i, sv.loc);
+            for (const rpc& r : sv.rpcs) add(r.name, root_ + 1 + i, symbol::rpc, npos, r.loc);
+        }
+
+        std::uint32_t size = 16;
+        while (size < 2 * names_.size()) size *= 2;
+        slots_.assign(size, 0);
+        mask_ = size - 1;
+        std::uint32_t* const slots = slots_.data();
+        const name_entry* const names = names_.data();
+        const name_entry* second = nullptr;  // the earliest second definition
+        const auto total = static_cast<std::uint32_t>(names_.size());
+        for (std::uint32_t k = 0; k < total; ++k) {
+            const name_entry& n = names[k];
+            std::uint32_t i = n.hash & mask_;
+            while (slots[i] != 0) {
+                const name_entry& o = names[slots[i] - 1];
+                if (o.hash == n.hash && o.scope == n.scope && same(o.name, n.name)) break;
+                i = (i + 1) & mask_;
+            }
+            if (slots[i] == 0) {
+                slots[i] = k + 1;
+                continue;
+            }
+            // The table keeps the earliest definition; the later one of the pair is a second one.
+            const name_entry& o = names[slots[i] - 1];
+            const bool new_first = before(n.loc, o.loc);
+            const name_entry& later = new_first ? o : n;
+            if (new_first) slots[i] = k + 1;
+            if (second == nullptr || before(later.loc, second->loc)) second = &later;
+        }
+        if (second != nullptr) return fail(errc::duplicate_definition, second->loc, second->name);
+        return true;
     }
 
-    // The symbol named scope + '.' + rest (rest alone when scope is empty).
-    [[nodiscard]] constexpr const name_entry* lookup(std::string_view scope, std::string_view rest) const noexcept {
-        const auto it = std::lower_bound(names_.begin(), names_.end(), 0, [&](const name_entry& e, int) {
-            return compare_joined(e.full, scope, rest) < 0;
-        });
-        if (it == names_.end() || compare_joined(it->full, scope, rest) != 0) return nullptr;
-        return &*it;
+    [[nodiscard]] constexpr const name_entry* find(std::uint32_t scope, std::string_view name) const noexcept {
+        const std::uint32_t h = scoped_hash(scope, name);
+        const std::uint32_t* const slots = slots_.data();
+        const name_entry* const names = names_.data();
+        for (std::uint32_t i = h & mask_;; i = (i + 1) & mask_) {
+            const std::uint32_t s = slots[i];
+            if (s == 0) return nullptr;
+            const name_entry& e = names[s - 1];
+            if (e.hash == h && e.scope == scope && same(e.name, name)) return &e;
+        }
+    }
+
+    [[nodiscard]] constexpr std::uint32_t parent_scope(std::uint32_t s) const noexcept {
+        const auto nm = static_cast<std::uint32_t>(f_.messages.size());
+        if (s < nm) {
+            const std::uint32_t p = f_.messages.data()[s].parent;
+            return p == npos ? file_scope_ : p;
+        }
+        if (s < root_) return s == nm ? root_ : s - 1;
+        return npos;
+    }
+
+    // The scope that holds a symbol's members, or npos when it holds none (an enum's values live
+    // beside it).
+    [[nodiscard]] constexpr std::uint32_t inner_scope(const name_entry& e) const noexcept {
+        if (e.kind == symbol::message || e.kind == symbol::package) return e.index;
+        if (e.kind == symbol::service) return root_ + 1 + e.index;
+        return npos;
     }
 
     // protoc's rule. A name with a leading dot is fully qualified. Otherwise its first component
-    // is searched from the innermost scope outward, skipping symbols of the wrong kind (a
-    // non-type for a simple name). For a dotted name the first symbol found decides: the rest
-    // must exist inside it.
-    [[nodiscard]] constexpr const name_entry* resolve_name(std::string_view scope, std::string_view name) const {
-        if (!name.empty() && name.front() == '.') {
-            const name_entry* e = lookup({}, name.substr(1));
-            return e != nullptr && is_type(e->kind) ? e : nullptr;
-        }
-        std::size_t dot = name.size();
-        for (std::size_t k = 0; k < name.size(); ++k) {
-            if (name[k] == '.') {
-                dot = k;
-                break;
-            }
-        }
-        const std::string_view first = name.substr(0, dot);
-        for (;;) {
-            if (const name_entry* e = lookup(scope, first); e != nullptr) {
-                if (dot == name.size()) {
-                    if (is_type(e->kind)) return e;
-                } else {
-                    const name_entry* inner = lookup(scope, name);
-                    return inner != nullptr && is_type(inner->kind) ? inner : nullptr;
+    // is searched from the innermost scope outward: for a simple name the first type found wins
+    // (other symbols are skipped); for a dotted name the first aggregate found decides, and the
+    // rest must exist inside it.
+    [[nodiscard]] constexpr const name_entry* resolve_name(std::uint32_t scope, std::string_view name) const noexcept {
+        const char* p = name.data();
+        const char* const end = p + name.size();
+        const bool absolute = *p == '.';
+        if (absolute) ++p;
+        const char* dot = p;
+        while (dot != end && *dot != '.') ++dot;
+        const std::string_view first(p, static_cast<std::size_t>(dot - p));
+        const name_entry* e = nullptr;
+        if (absolute) {
+            e = find(root_, first);
+        } else {
+            for (std::uint32_t s = scope; s != npos; s = parent_scope(s)) {
+                const name_entry* c = find(s, first);
+                if (c != nullptr && (dot == end ? is_type(c->kind) : is_aggregate(c->kind))) {
+                    e = c;
+                    break;
                 }
             }
-            if (scope.empty()) return nullptr;
-            const auto cut = scope.rfind('.');
-            scope = cut == std::string_view::npos ? std::string_view{} : scope.substr(0, cut);
         }
+        while (e != nullptr && dot != end) {
+            p = dot + 1;
+            dot = p;
+            while (dot != end && *dot != '.') ++dot;
+            const std::uint32_t inner = inner_scope(*e);
+            e = inner == npos ? nullptr : find(inner, std::string_view(p, static_cast<std::size_t>(dot - p)));
+        }
+        return e != nullptr && is_type(e->kind) ? e : nullptr;
     }
 
     [[nodiscard]] constexpr bool resolve() {
-        for (auto& m : f_.messages) {
-            const std::string_view scope = m.full_name;
-            for (auto& fd : m.fields) {
-                if (fd.type_name.empty()) continue;
-                const name_entry* e = resolve_name(scope, fd.type_name);
-                if (e == nullptr) return fail(errc::unknown_type, fd.type_loc, fd.type_text);
-                fd.kind = e->kind == symbol::message ? field_kind::message : field_kind::enumeration;
-                fd.type_index = e->index;
+        message* const ms = f_.messages.data();
+        const auto nm = static_cast<std::uint32_t>(f_.messages.size());
+        for (std::uint32_t i = 0; i < nm; ++i) {
+            field* const fe = ms[i].fields.data() + ms[i].fields.size();
+            for (field* fd = ms[i].fields.data(); fd != fe; ++fd) {
+                if (fd->type_name.empty()) continue;
+                const name_entry* e = resolve_name(i, fd->type_name);
+                if (e == nullptr) return fail(errc::unknown_type, fd->type_loc, fd->type_text);
+                fd->kind = e->kind == symbol::message ? field_kind::message : field_kind::enumeration;
+                fd->type_index = e->index;
             }
         }
-        for (auto& s : f_.services) {
-            for (auto& r : s.rpcs) {
-                const name_entry* q = resolve_name(f_.package, r.request_name);
-                if (q == nullptr) return fail(errc::unknown_type, r.request_loc, r.name);
-                if (q->kind != symbol::message) return fail(errc::not_a_message_type, r.request_loc, r.name);
-                const name_entry* p = resolve_name(f_.package, r.response_name);
-                if (p == nullptr) return fail(errc::unknown_type, r.response_loc, r.name);
-                if (p->kind != symbol::message) return fail(errc::not_a_message_type, r.response_loc, r.name);
-                r.request = q->index;
-                r.response = p->index;
+        for (service& sv : f_.services) {
+            rpc* const re = sv.rpcs.data() + sv.rpcs.size();
+            for (rpc* r = sv.rpcs.data(); r != re; ++r) {
+                const name_entry* q = resolve_name(file_scope_, r->request_name);
+                if (q == nullptr) return fail(errc::unknown_type, r->request_loc, r->name);
+                if (q->kind != symbol::message) return fail(errc::not_a_message_type, r->request_loc, r->name);
+                const name_entry* a = resolve_name(file_scope_, r->response_name);
+                if (a == nullptr) return fail(errc::unknown_type, r->response_loc, r->name);
+                if (a->kind != symbol::message) return fail(errc::not_a_message_type, r->response_loc, r->name);
+                r->request = q->index;
+                r->response = a->index;
             }
         }
         return true;
@@ -1511,33 +1588,36 @@ private:
     // reaches a message still on the stack closes a cycle.
     [[nodiscard]] constexpr bool order_messages() {
         const std::size_t n = f_.messages.size();
+        const message* const ms = f_.messages.data();
         std::vector<std::uint8_t> state(n, 0);  // 0 new, 1 on stack, 2 done
+        std::uint8_t* const st = state.data();
         struct frame {
             std::uint32_t msg;
-            std::uint32_t next_field;
+            const field* next;
+            const field* end;
         };
         std::vector<frame> stack;
+        const auto enter = [&](std::uint32_t m) {
+            st[m] = 1;
+            const field* const fs = ms[m].fields.data();
+            stack.push_back({m, fs, fs + ms[m].fields.size()});
+        };
         f_.definition_order.reserve(n);
         for (std::uint32_t root = 0; root < n; ++root) {
-            if (state[root] != 0) continue;
-            stack.push_back({root, 0});
-            state[root] = 1;
+            if (st[root] != 0) continue;
+            enter(root);
             while (!stack.empty()) {
                 frame& top = stack.back();
-                const message& m = f_.messages[top.msg];
-                if (top.next_field == m.fields.size()) {
-                    state[top.msg] = 2;
+                while (top.next != top.end && top.next->kind != field_kind::message) ++top.next;
+                if (top.next == top.end) {
+                    st[top.msg] = 2;
                     f_.definition_order.push_back(top.msg);
                     stack.pop_back();
                     continue;
                 }
-                const field& fd = m.fields[top.next_field++];
-                if (fd.kind != field_kind::message) continue;
-                if (state[fd.type_index] == 1) return fail(errc::recursive_message, fd.type_loc, fd.type_text);
-                if (state[fd.type_index] == 0) {
-                    state[fd.type_index] = 1;
-                    stack.push_back({fd.type_index, 0});
-                }
+                const field& fd = *top.next++;
+                if (st[fd.type_index] == 1) return fail(errc::recursive_message, fd.type_loc, fd.type_text);
+                if (st[fd.type_index] == 0) enter(fd.type_index);
             }
         }
         return true;
