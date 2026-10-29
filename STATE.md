@@ -48,9 +48,13 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `string_view` compare 50; so names are views now. Ladder under default limits (pass/fail, no
   timing, 531eca8): both shapes pass 1024 fields and fail 2048. Target: 4096, or a declared
   secondary curve with raised limits. Next: the token vector (about 0.9k per token).
-- In progress (2026-10-29): dev-image GCC 16.2.0 build into `D:/Dev/toolchains/gcc-16.2.0-linux`
-  (request 4); `bench/gen_schema.py protoc` emits the G_P user program (untested until the pinned
-  protobuf is built with GCC 16.2.0).
+- Dev-image GCC 16.2.0 (Laptop request 4, desktop part, done 2026-10-29): the checked tarball,
+  the request's configure line, `-j4`, installed into `D:\Dev\toolchains\gcc-16.2.0-linux`, which
+  containers mount at `/home/dev/opt/gcc-16.2.0` (the image is unchanged). `g++` 16.2.0; the probe
+  prints the expected line; F1 as in MinGW 16.2.0; 14 of 14 pass at 20777ca (Release, rpath to
+  its `lib64`, so the tests load its libstdc++).
+- In progress: abseil 20250512.1 and protobuf 36.2 built with that GCC (C++26, `-O2`, static) into
+  `D:\Dev\toolchains\protobuf-36.2-linux`; then the G_P user program (`gen_schema.py protoc`).
 
 ## Build and test (desktop, functional only; no timing)
 
@@ -138,9 +142,9 @@ queue; design, scope and pushes still go to Alex.
    closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
    load test against each server variant, to learn how long one window takes and which load
    saturates the server.
-4. Ready (Alex decides 10): GCC 16.2.0 from source on Arch, and the same for the dev image;
-   source, configure line, checks and linking in `bench/requests/gcc-16.2.0.md`. Arch. No
-   measured basis for the build time; the job records it.
+4. Queued as chain A19 (Alex decides 10): GCC 16.2.0 from source on Arch; source, configure line,
+   checks and linking in `bench/requests/gcc-16.2.0.md`. The job records its own build time. The
+   dev-image part is done (above).
 
 ## Lab requests
 
@@ -152,9 +156,8 @@ Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026
 2. Pin Go 1.27.2 (Alex, D2: the same as P4 and P7) and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
    through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
 3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
-4. Done 2026-10-24 (job `p5-mingw-w`, exit 0, per the coordinator). It was: copy the zip from the desktop's
-   `C:\Users\alext\opt\_dl\p5-winlibs-gcc16-r3`, check the sha256 on the laptop, unpack to the
-   same path, and add a row to `lab/laptop/versions.md` (a lab tooling change, the coordinator's).
+4. Done 2026-10-24 (job `p5-mingw-w`, exit 0, per the coordinator): the MinGW-w64 GCC 16.2.0 zip
+   copied to the laptop's Windows, sha256 checked, unpacked to the desktop's path.
 
 ## Alex decides
 
@@ -186,10 +189,8 @@ From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coord
 10. GCC version (2026-10-29, relayed by the coordinator; question "Declare the gap, or pin 16.2.0
     on both?"): "Pin 16.2.0 on both". Linux build request: `bench/requests/gcc-16.2.0.md`.
 
-Open: none. Next actions from these answers: the MinGW-w64 GCC 16 desktop probe (a pinned
-download into a fresh folder, checked against its published sha256). The two report drafts are in
-`design/gcc-report-drafts.md` (F2 is probably GCC PR 71962; Bugzilla refuses automated searches,
-so Alex checks for duplicates by hand before filing).
+Open: none. The two report drafts are in `design/gcc-report-drafts.md` (F2 is probably GCC PR
+71962; Bugzilla refuses automated searches, so Alex checks for duplicates by hand before filing).
 
 ## Never
 

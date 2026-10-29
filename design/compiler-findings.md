@@ -37,7 +37,9 @@ tries to evaluate the constexpr call ahead of time, and adds the offset twice.
 
 The same reproduction prints 3 for "f literal" and "g literal" at `-O2` with MinGW-w64 GCC 16.2.0
 (WinLibs r3, the 16.2.0 release, 2026-10-23), so the defect is in the release, not only in Arch's
-16.2.1 snapshot.
+16.2.1 snapshot. GCC 16.2.0 built from the release tarball for Linux (`bench/requests/gcc-16.2.0.md`,
+dev image, 2026-10-29) prints the same: 2 everywhere at `-O0`; 3 for "f literal" and "g literal" at
+`-O2`.
 
 What this repository does: the portable layer uses no `string_view::find` in constexpr code
 (`grpc.hpp` `split_path` and the lexer's symbol test use loops). `test_grpc` and `test_schema`
