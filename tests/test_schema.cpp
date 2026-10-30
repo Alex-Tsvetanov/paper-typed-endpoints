@@ -104,6 +104,11 @@ constexpr bad_case bad_cases[] = {
     {"streaming response", P3 "message A {}\nservice S { rpc M(A) returns (stream A); }\n", errc::unsupported_streaming, 3, 31},
     {"rpc on an enum", P3 "enum E { Z = 0; }\nmessage A {}\nservice S { rpc M(E) returns (A); }\n", errc::not_a_message_type, 4, 19},
     {"rpc on an unknown type", P3 "message A {}\nservice S { rpc M(B) returns (A); }\n", errc::unknown_type, 3, 19},
+    // protoc looks an rpc's types up inside the service first: a simple name there is an rpc.
+    {"rpc type is its own name", P3 "message Req {}\nservice S { rpc Req(Req) returns (Req); }\n",
+     errc::not_a_message_type, 3, 21},
+    {"rpc type is another rpc", P3 "message A {}\nmessage B {}\nservice S { rpc B(A) returns (A); rpc C(B) returns (A); }\n",
+     errc::not_a_message_type, 4, 41},
     {"proto2", "syntax = \"proto2\";\n", errc::syntax_not_proto3, 1, 10},
     {"missing syntax", "message A {}\n", errc::missing_syntax, 1, 1},
     {"editions", "edition = \"2023\";\n", errc::unsupported_editions, 1, 1},
@@ -257,6 +262,17 @@ enum E { option allow_alias = true; Z = 0; ZERO = 0; NEG = -5; reserved 7, 9 to 
     TEP_CHECK(parse("syntax = \"proto3\"; enum Foo { FOO_BAR_BAZ = 0; FOO_BARBAZ = 1; }").has_value());
     // A package component is a scope for dotted names.
     TEP_CHECK(parse("syntax = \"proto3\"; package a.b; message X {} message Y { b.X x = 1; a.b.X y = 2; }").has_value());
+    // Each service holds exactly its rpcs: a reservation per service that grew with the whole
+    // file once made 3000 empty services take 320 MB.
+    std::string services = "syntax = \"proto3\";\nmessage A {}\n";
+    for (int i = 0; i < 300; ++i) services += "service S" + std::to_string(i) + " {}\n";
+    services += "service T { rpc M(A) returns (A); }\n";
+    const auto many = parse(services);
+    TEP_CHECK(many.has_value());
+    if (many) {
+        for (const service& s : many->services) TEP_CHECK(s.rpcs.capacity() == s.rpcs.size());
+        TEP_CHECK(many->services.back().rpcs.size() == 1);
+    }
 }
 
 }  // namespace

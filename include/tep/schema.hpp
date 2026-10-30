@@ -11,6 +11,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cassert>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -320,8 +321,12 @@ public:
     fixed_buffer& operator=(const fixed_buffer&) = delete;
     constexpr ~fixed_buffer() { release(); }
 
-    // Precondition: size() < capacity().
+    // Precondition: size() < capacity(). Checked at run time in debug builds; in constant
+    // evaluation an overflow is a compile error anyway.
     constexpr void push_back(const T& v) noexcept {
+        if !consteval {
+            assert(size_ < capacity_);
+        }
         std::construct_at(data_ + size_, v);
         ++size_;
     }
@@ -602,9 +607,13 @@ using namespace std::string_view_literals;
 class parser {
 public:
     // The token count bounds every list: a field takes at least five tokens, a message, enum or
-    // service four, an rpc nine. Reserving those bounds up front keeps the lists from growing.
+    // service four, an rpc ten. Reserving those bounds up front keeps the lists from growing.
     constexpr explicit parser(fixed_buffer<token> toks)
-        : buf_(std::move(toks)), cur_(buf_.data()), ntoks_(buf_.size()), pending_(ntoks_ / 5 + 1) {
+        : buf_(std::move(toks)),
+          cur_(buf_.data()),
+          ntoks_(buf_.size()),
+          pending_(ntoks_ / 5 + 1),
+          pending_rpcs_(ntoks_ / 10 + 1) {
         out_.messages.reserve(ntoks_ / 4 + 1);
         out_.enums.reserve(ntoks_ / 4 + 1);
         out_.services.reserve(ntoks_ / 4 + 1);
@@ -649,7 +658,8 @@ private:
     // taken only on an identifier, so it is at most the end token.
     const token* cur_;
     std::size_t ntoks_;
-    fixed_buffer<field> pending_;  // fields of the messages being parsed, innermost last
+    fixed_buffer<field> pending_;    // fields of the messages being parsed, innermost last
+    fixed_buffer<rpc> pending_rpcs_;  // rpcs of the service being parsed
     file out_{};
     error err_{};
     std::uint32_t depth_ = 0;
@@ -1110,7 +1120,7 @@ private:
         return expect_symbol(')');
     }
 
-    [[nodiscard]] constexpr bool parse_rpc(service& s) {
+    [[nodiscard]] constexpr bool parse_rpc() {
         ++cur_;  // 'rpc'
         rpc r{};
         r.loc = cur_->loc;
@@ -1140,7 +1150,7 @@ private:
         } else if (!expect_symbol(';')) {
             return false;
         }
-        s.rpcs.push_back(std::move(r));
+        pending_rpcs_.push_back(r);
         return true;
     }
 
@@ -1151,7 +1161,6 @@ private:
         if (!expect_ident(s.name)) return false;
         s.loc = name_tok.loc;
         if (!expect_symbol('{')) return false;
-        s.rpcs.reserve(ntoks_ / 9 + 1);
         for (;;) {
             const token& t = *cur_;
             if (t.kind == tok::end) return fail(errc::unexpected_end, t);
@@ -1164,11 +1173,14 @@ private:
             } else if (is_word(t, "option"sv)) {
                 if (!parse_option(level::service)) return false;
             } else if (is_word(t, "rpc"sv)) {
-                if (!parse_rpc(s)) return false;
+                if (!parse_rpc()) return false;
             } else {
                 return fail(errc::unexpected_token, t);
             }
         }
+        // Services do not nest, so the pending rpcs are all this service's.
+        s.rpcs.assign(pending_rpcs_.data(), pending_rpcs_.data() + pending_rpcs_.size());
+        pending_rpcs_.truncate(0);
         out_.services.push_back(std::move(s));
         return true;
     }
@@ -1516,8 +1528,8 @@ private:
     // services, rpcs (one scope per service), and the fields of messages that also hold nested
     // types (duplicate field names were checked already). A name defined twice in a scope is
     // reported at its second definition; with several, at the earliest such point in the source.
-    // Names crafted to collide in the hash only lengthen probe runs, and the constant-evaluation
-    // limit bounds those.
+    // Names crafted to collide in the hash lengthen probe runs: in constant evaluation the
+    // operation limit bounds them; a run-time parse of a hostile schema can take quadratic time.
     [[nodiscard]] constexpr bool build_names() {
         const auto nm = static_cast<std::uint32_t>(f_.messages.size());
         const std::string_view pkg = f_.package;
@@ -1677,17 +1689,31 @@ private:
                 fd->type_index = e->index;
             }
         }
-        for (service& sv : f_.services) {
+        // protoc looks an rpc's types up from inside its service and takes the first symbol it
+        // finds, of any kind: a simple name that is also an rpc of the service is that rpc, not a
+        // message. Further out, resolve_name's rules agree with protoc's.
+        const auto is_simple = [](std::string_view n) {
+            for (const char c : n)
+                if (c == '.') return false;
+            return true;
+        };
+        const auto rpc_type = [&](std::uint32_t own_scope, std::string_view type, location loc, std::string_view rpc_name,
+                                  std::uint32_t& out) {
+            if (is_simple(type) && find(own_scope, type) != nullptr)
+                return fail(errc::not_a_message_type, loc, rpc_name);
+            const name_entry* e = resolve_name(file_scope_, type);
+            if (e == nullptr) return fail(errc::unknown_type, loc, rpc_name);
+            if (e->kind != symbol::message) return fail(errc::not_a_message_type, loc, rpc_name);
+            out = e->index;
+            return true;
+        };
+        for (std::uint32_t si = 0; si < f_.services.size(); ++si) {
+            service& sv = f_.services.data()[si];
+            const std::uint32_t own_scope = root_ + 1 + si;
             rpc* const re = sv.rpcs.data() + sv.rpcs.size();
             for (rpc* r = sv.rpcs.data(); r != re; ++r) {
-                const name_entry* q = resolve_name(file_scope_, r->request_name);
-                if (q == nullptr) return fail(errc::unknown_type, r->request_loc, r->name);
-                if (q->kind != symbol::message) return fail(errc::not_a_message_type, r->request_loc, r->name);
-                const name_entry* a = resolve_name(file_scope_, r->response_name);
-                if (a == nullptr) return fail(errc::unknown_type, r->response_loc, r->name);
-                if (a->kind != symbol::message) return fail(errc::not_a_message_type, r->response_loc, r->name);
-                r->request = q->index;
-                r->response = a->index;
+                if (!rpc_type(own_scope, r->request_name, r->request_loc, r->name, r->request)) return false;
+                if (!rpc_type(own_scope, r->response_name, r->response_loc, r->name, r->response)) return false;
             }
         }
         return true;
