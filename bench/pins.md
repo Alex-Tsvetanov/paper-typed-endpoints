@@ -60,6 +60,6 @@ maintainer's key, which is not pinned here.
 ## Not yet pinned
 
 - gRPC C++ for the reference arm G (Alex's decision D-G: built after arms R and P).
-- libev, c-ares and OpenSSL for the h2load tools build: use the laptop's existing OpenSSL 3.5.9
-  on Windows (P3 and P4) and the system packages on Arch; pin them when the h2load build is
-  scripted.
+- libev, c-ares and OpenSSL for the h2load tools build on Arch: the system packages; pin them when
+  the h2load build is scripted. Windows runs use ghz instead (Alex, 2026-10-30,
+  `design/revision-log.md`), since a MinGW build of nghttp2 is the library only.

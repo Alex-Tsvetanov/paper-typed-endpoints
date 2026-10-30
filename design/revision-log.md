@@ -18,3 +18,26 @@ secondary curve; Alex was not asked).
   under the default limits and is on the primary curve.
 - Not done: moving tokenization into a separately evaluated stage, which would bring the cell
   under the default limit (about 25M) without shortening the compile.
+
+## 2026-10-30. Four decisions for the end-to-end benchmark
+
+Decided by Alex (AskUserQuestion through the coordinator, 2026-10-30). Each item gives the
+question as sent and his pick verbatim.
+
+- Q1, load generator on Windows. nghttp2's README (v1.70.0, lines 260 to 270) says a MinGW build
+  compiles the library only; h2load needs Cygwin with libev. Pick: "h2load + ghz (Recommended)",
+  the option "h2load on Linux and ghz (native Go) on Windows. The same generator serves all arms on
+  each OS, and the comparisons are per OS. The pilot checks that ghz saturates the server." This
+  replaces, for Windows, decision 4 of 2026-10-23 in STATE.md (h2load drives every timed run).
+  Not taken: h2load under Cygwin; a generator of our own.
+- Q2, arm P's configuration. Pick: "Both at their best (Recommended)", the option "P in protobuf's
+  documented best configuration: one Arena per request with a reused initial block, and messages
+  created on it. R in its own best configuration, which I engineer per D2: reused buffers, and no
+  per-request heap allocation where possible." Not taken: both arms without an arena.
+- Q3, Windows toolchain. Pick: "Try MinGW, else gap (Recommended)", the option "Try abseil and
+  protobuf on MinGW GCC 16 first; if they fail, Windows R against P becomes a declared gap. G (gRPC
+  C++) is built with MSVC on Windows, its documented best configuration; G is a reference arm, not
+  same-compiler." Not taken: Linux only. Stopping rule (this session): if a pinned source needs a
+  patch to build on MinGW, that is not its documented configuration, so it triggers the gap.
+- Q4, download. Pick: "Download (Recommended)" for nghttp2-1.70.0.tar.xz from the GitHub release,
+  checked against `bench/pins.md` before unpacking: 2,018,996 bytes, sha256 equal (2026-10-30).
