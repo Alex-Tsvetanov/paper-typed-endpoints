@@ -19,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -34,11 +35,30 @@ extern "C" void on_signal(int) {
 }
 
 #ifdef _WIN32
-// Runs on a thread the system creates for the event; stop() only sets a flag and wakes the workers.
-BOOL WINAPI on_console_event(DWORD) {
-    on_signal(0);
+// Console control events run on a thread the system creates. The mutex keeps a handler from
+// stopping the server while main clears the pointer and destroys it. A close, logoff or shutdown
+// event ends the process as soon as its handler returns, so that handler waits until main is done.
+std::mutex stop_mutex;
+std::atomic<bool> finished{false};
+
+BOOL WINAPI on_console_event(DWORD type) {
+    {
+        const std::lock_guard lock(stop_mutex);
+        on_signal(0);
+    }
+    if (type == CTRL_CLOSE_EVENT || type == CTRL_LOGOFF_EVENT || type == CTRL_SHUTDOWN_EVENT) finished.wait(false);
     return TRUE;
 }
+
+struct finish_on_exit {
+    finish_on_exit() = default;
+    finish_on_exit(const finish_on_exit&) = delete;
+    finish_on_exit& operator=(const finish_on_exit&) = delete;
+    ~finish_on_exit() {
+        finished.store(true);
+        finished.notify_all();
+    }
+};
 #endif
 
 int usage() {
@@ -91,6 +111,9 @@ int main(int argc, char** argv) {
     } else {
         return usage();
     }
+#ifdef _WIN32
+    const finish_on_exit finish;  // destroyed after the server
+#endif
     try {
         e2e::server s(options);
         running.store(&s);
@@ -105,6 +128,9 @@ int main(int argc, char** argv) {
                     static_cast<unsigned>(s.port()), options.cpus.empty() ? std::size_t{1} : options.cpus.size());
         std::fflush(stdout);
         s.run();
+#ifdef _WIN32
+        const std::lock_guard lock(stop_mutex);
+#endif
         running.store(nullptr);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "tep_server: %s\n", e.what());

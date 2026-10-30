@@ -137,12 +137,14 @@ class worker {
 public:
     worker(server_state& server, int cpu) : server_(server), cpu_(cpu), arm_(server.options.make_arm()) {}
 
-    // From the accepting worker's thread.
+    // From the accepting worker's thread. The flag, not the wakeup, is what makes this worker adopt
+    // the connection, so a lost wakeup only delays it to the next poll timeout.
     void hand_over(net::socket_t fd) {
         {
             const std::lock_guard lock(mutex_);
             handed_.push_back(fd);
         }
+        pending_.store(true, std::memory_order_release);
         wake_.signal();
     }
 
@@ -186,6 +188,7 @@ private:
     void read(connection& c);
     void flush(connection& c);
     void close_marked();
+    void adopt_handed(std::vector<net::socket_t>& adopted);
 
     server_state& server_;
     int cpu_;
@@ -194,6 +197,7 @@ private:
     net::wakeup wake_;
     std::mutex mutex_;
     std::vector<net::socket_t> handed_;
+    std::atomic<bool> pending_{false};
     std::vector<std::unique_ptr<connection>> connections_;
     std::vector<connection*> marked_;
     std::size_t next_ = 0;
@@ -346,6 +350,16 @@ void worker::close_marked() {
     marked_.clear();
 }
 
+void worker::adopt_handed(std::vector<net::socket_t>& adopted) {
+    if (!pending_.exchange(false, std::memory_order_acquire)) return;
+    {
+        const std::lock_guard lock(mutex_);
+        adopted.swap(handed_);
+    }
+    for (const net::socket_t fd : adopted) add_connection(fd);
+    adopted.clear();
+}
+
 void worker::run(bool accepts) {
     if (cpu_ >= 0) net::pin_this_thread(cpu_);
     if (accepts) poller_.add(server_.listener, listener_token, false);
@@ -360,12 +374,6 @@ void worker::run(bool accepts) {
                 accept_all();
             } else if (e.token == wakeup_token) {
                 wake_.drain();
-                {
-                    const std::lock_guard lock(mutex_);
-                    adopted.swap(handed_);
-                }
-                for (const net::socket_t fd : adopted) add_connection(fd);
-                adopted.clear();
             } else {
                 auto* c = reinterpret_cast<connection*>(e.token);
                 if (c->closing) continue;
@@ -375,6 +383,7 @@ void worker::run(bool accepts) {
             }
         }
         close_marked();
+        adopt_handed(adopted);
     }
     for (const auto& c : connections_) poller_.remove(c->fd);
     connections_.clear();

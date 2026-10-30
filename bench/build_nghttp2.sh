@@ -15,7 +15,10 @@ set -euo pipefail
 src=$(cd "$1" && pwd)
 prefix=$2
 jobs=${3:-4}
-gcc_root=${GCC:-$HOME/opt/gcc-16.2.0}
+case "$(uname -s)" in
+  MINGW* | MSYS*) gcc_root=${GCC:?set GCC to the winlibs mingw64 folder} ;;
+  *) gcc_root=${GCC:-$HOME/opt/gcc-16.2.0} ;;
+esac
 
 (cd "$src" && sha256sum -c --strict) <<'EOF'
 e05cb1388eaca3830aded4ccf20044b6e1ac1a61411dcca11b0437c4285c8bc2  nghttp2-1.70.0.tar.xz
@@ -38,6 +41,7 @@ case "$(uname -s)" in
     ;;
 esac
 mkdir -p "$prefix/logs"
+trap 'echo "build_nghttp2.sh: failed; logs in $prefix/logs" >&2' ERR
 tar -xJf "$src/nghttp2-1.70.0.tar.xz" -C "$work"
 
 cmake -S "$w/nghttp2-1.70.0" -B "$w/b" "${tool[@]}" -DCMAKE_BUILD_TYPE=Release \

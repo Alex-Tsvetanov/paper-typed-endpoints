@@ -15,6 +15,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <climits>
 #include <system_error>
 #include <vector>
@@ -159,6 +160,7 @@ void wakeup::drain() noexcept {
 struct poller::watch_set {
     std::vector<WSAPOLLFD> fds;
     std::vector<std::uint64_t> tokens;  // tokens[i] belongs to fds[i]
+    std::size_t start = 0;              // where the next wait starts reporting, so none starves
 
     std::size_t find(socket_t s) const noexcept {
         for (std::size_t i = 0; i < fds.size(); ++i)
@@ -206,13 +208,20 @@ std::size_t poller::wait(std::span<event> out, int timeout_ms) {
     }
     const int ready = ::WSAPoll(set_->fds.data(), static_cast<ULONG>(set_->fds.size()), timeout_ms);
     if (ready == SOCKET_ERROR) fail("WSAPoll");
+    if (ready == 0) return 0;
+    // At most out.size() events are reported; the scan starts where the last one stopped, so with
+    // more ready sockets than that every socket is reported within a few waits.
+    const std::size_t count = set_->fds.size();
+    const std::size_t limit = std::min(out.size(), static_cast<std::size_t>(ready));
     std::size_t n = 0;
-    for (std::size_t i = 0; i < set_->fds.size() && n < out.size(); ++i) {
+    std::size_t i = set_->start % count;
+    for (std::size_t seen = 0; seen < count && n < limit; ++seen, i = i + 1 == count ? 0 : i + 1) {
         const SHORT ev = set_->fds[i].revents;
         if (ev == 0) continue;
         out[n++] = {set_->tokens[i], (ev & POLLRDNORM) != 0, (ev & POLLWRNORM) != 0,
                     (ev & (POLLERR | POLLHUP | POLLNVAL)) != 0};
     }
+    set_->start = i;
     return n;
 }
 

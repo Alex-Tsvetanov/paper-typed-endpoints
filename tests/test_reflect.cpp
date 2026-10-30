@@ -238,6 +238,8 @@ void test_dispatch_paths() {
     constexpr auto ctx = std::meta::access_context::unchecked();
     static_assert(std::meta::nonstatic_data_members_of(^^Small, ctx).size() <= tep::detail::inline_dispatch_fields);
     static_assert(std::meta::nonstatic_data_members_of(^^Dense, ctx).size() > tep::detail::inline_dispatch_fields);
+    static_assert(tep::detail::dense_numbers<Dense>, "Dense covers the direct slot table");
+    static_assert(!tep::detail::dense_numbers<Everything>, "Everything covers the binary search");
     Small s{};
     s.a1 = -7;
     s.a2 = "two";

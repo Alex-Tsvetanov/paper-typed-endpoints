@@ -2,20 +2,21 @@
   "status": "DRAFT 2026-10-23, not frozen; needs Alex's decision 2 in STATE.md before any number is citable",
   "layers": {
     "portable": "include/tep/schema.hpp, wire.hpp, grpc.hpp, fixed_string.hpp",
-    "reflection": "include/tep/reflect.hpp"
+    "reflection": "include/tep/reflect.hpp",
+    "server": "server/h2_server.cpp, net_linux.cpp, net_windows.cpp, main.cpp (the transport, one thread per server CPU); arm_p.cpp, requests.cpp (arm P); arm_r.cpp (arm R, reflection)"
   },
   "linux": {
     "portable": {
       "clang_asan_ubsan": "planned (clang 22.1.8 with libc++, preset linux-clang-asan)",
-      "clang_tsan": "planned once the transport has threads",
+      "clang_tsan": "planned for the portable layers",
       "clang_msan": "planned; needs an instrumented libc++, a laptop job",
       "clang_tidy": "planned",
       "cppcheck": "planned"
     },
     "reflection": {
-      "gcc_asan": "planned (GCC 16.2.1, preset linux-gcc-asan)",
-      "gcc_ubsan": "planned without null, nonnull-attribute and returns-nonnull-attribute: with any of them GCC 16.2.1 cannot constant-evaluate the layer (design/compiler-findings.md F2)",
-      "gcc_tsan": "planned once the transport has threads",
+      "gcc_asan": "planned (pinned GCC 16.2.0, presets linux-gcc1620-asan and linux-gcc1620-e2e, the server layer included, with abseil and protobuf built with the same flags)",
+      "gcc_ubsan": "planned without null, nonnull-attribute and returns-nonnull-attribute: with any of them GCC 16 cannot constant-evaluate the layer (design/compiler-findings.md F2)",
+      "gcc_tsan": "planned: the server layer has threads (test_server runs two workers and the connection handover); needs a TSan preset and a TSan protobuf build",
       "msan": "gap: GCC has no MSan, and no clang can parse the reflection layer",
       "clang_tidy": "gap: no clang can parse P2996 code",
       "cppcheck": "unknown: not yet tried on P2996 code"
@@ -25,7 +26,10 @@
     "portable": {
       "msvc_asan": "planned (MSVC 19.51, preset msvc-asan); records made on the laptop"
     },
-    "reflection": "open: MSVC has no P2996 (STATE.md, Alex decides 1)"
+    "server": {
+      "msvc_asan": "planned: the transport (net_windows.cpp, h2_server.cpp, main.cpp) and arm P built with MSVC ASan, which needs MSVC builds of abseil, protobuf and libnghttp2 and an end-to-end build without arm R (coordinator, 2026-10-30)"
+    },
+    "reflection": "gap: on Windows only MinGW-w64 GCC 16 builds the reflection layer and arm R, and it has no ASan or UBSan; MSVC and clang-cl have no P2996. The Linux GCC ASan+UBSan and TSan records cover the same first-party inputs (CLAUDE.md D5; p5-typed-endpoints/AGENTS.md line 24)"
   },
   "third_party": "protoc, libprotobuf, nghttp2, grpc-go and the load generator are pinned arms or tools, not sanitized first-party code"
 }

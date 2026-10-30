@@ -28,17 +28,32 @@ target_include_directories(e2e_arms PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(e2e_arms PUBLIC tep_reflect e2e_pb)
 tep_test_target(e2e_arms)
 
+# MinGW: the pinned compiler's runtime DLLs are copied next to each executable, which the DLL search
+# order prefers to PATH (where another MinGW runtime, such as Git for Windows', may come first).
+function(tep_mingw_runtime target)
+  if(MINGW)
+    get_filename_component(bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    foreach(dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${bin}/${dll}" "$<TARGET_FILE_DIR:${target}>")
+    endforeach()
+  endif()
+endfunction()
+
 add_executable(test_arms test_arms.cpp)
 target_include_directories(test_arms PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_link_libraries(test_arms PRIVATE e2e_arms)
 tep_test_target(test_arms)
+tep_mingw_runtime(test_arms)
 add_test(NAME arms COMMAND test_arms)
 
 # The transport and the benchmark server. libnghttp2 is the pinned static build under
 # TEP_NGHTTP2_ROOT (bench/build_nghttp2.sh); without it, on Linux only, the system's (pkg-config).
 if(TEP_NGHTTP2_ROOT)
-  list(APPEND CMAKE_PREFIX_PATH ${TEP_NGHTTP2_ROOT})
-  find_package(nghttp2 1.70.0 EXACT CONFIG REQUIRED)
+  if(NOT EXISTS ${TEP_NGHTTP2_ROOT}/lib/cmake/nghttp2)
+    message(FATAL_ERROR "TEP_NGHTTP2_ROOT (${TEP_NGHTTP2_ROOT}) has no lib/cmake/nghttp2; see bench/build_nghttp2.sh")
+  endif()
+  find_package(nghttp2 1.70.0 EXACT CONFIG REQUIRED PATHS ${TEP_NGHTTP2_ROOT} NO_DEFAULT_PATH)
   set(TEP_NGHTTP2 nghttp2::nghttp2_static)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   find_package(PkgConfig REQUIRED)
@@ -63,9 +78,11 @@ tep_test_target(e2e_transport)
 add_executable(tep_server main.cpp)
 target_link_libraries(tep_server PRIVATE e2e_transport)
 tep_test_target(tep_server)
+tep_mingw_runtime(tep_server)
 
 add_executable(test_server test_server.cpp)
 target_include_directories(test_server PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_link_libraries(test_server PRIVATE e2e_transport)
 tep_test_target(test_server)
+tep_mingw_runtime(test_server)
 add_test(NAME server COMMAND test_server)

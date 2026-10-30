@@ -188,13 +188,7 @@ private:
     nghttp2_session* session_ = nullptr;
 };
 
-void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)()) {
-    e2e::server_options options;
-    options.port = 0;
-    options.make_arm = make;
-    e2e::server s(options);
-    std::thread serving([&s] { s.run(); });
-
+std::vector<call> make_calls() {
     const std::string small = e2e::small_request();
     const std::string medium = e2e::medium_request();
     std::vector<call> calls;
@@ -202,10 +196,10 @@ void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)()) {
     for (int i = 0; i < 10; ++i) calls.emplace_back("/bench.e2e.Echo/EchoOrder", framed(medium));
     calls.emplace_back("/bench.e2e.Echo/Missing", framed(small));
     calls.emplace_back("/bench.e2e.Echo/EchoPerson", framed(small, true));
-    {
-        client c(s.port());
-        c.run(calls);
-    }
+    return calls;
+}
+
+void check_calls(const char* name, const std::vector<call>& calls) {
     int ok = 0;
     for (std::size_t i = 0; i < 60; ++i)
         ok += calls[i].closed && calls[i].grpc_status == "0" && calls[i].response == calls[i].body ? 1 : 0;
@@ -213,6 +207,30 @@ void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)()) {
     TEP_CHECK(ok == 60);
     TEP_CHECK(calls[60].closed && calls[60].grpc_status == "12" && calls[60].response.empty());
     TEP_CHECK(calls[61].closed && calls[61].grpc_status == "13" && calls[61].response.empty());
+}
+
+// One server, `connections` clients at once, each on its own connection with every call in
+// flight. With two or more CPUs, worker 0 accepts and hands connections to the others, so the
+// handover, its lock and the cross-thread wakeup run.
+void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)(), std::vector<int> cpus, int connections) {
+    e2e::server_options options;
+    options.port = 0;
+    options.cpus = std::move(cpus);
+    options.make_arm = make;
+    e2e::server s(options);
+    std::thread serving([&s] { s.run(); });
+
+    std::vector<std::vector<call>> per_connection;
+    for (int i = 0; i < connections; ++i) per_connection.push_back(make_calls());
+    const std::uint16_t port = s.port();
+    std::vector<std::thread> clients;
+    for (auto& calls : per_connection)
+        clients.emplace_back([port, &calls] {
+            client c(port);
+            c.run(calls);
+        });
+    for (std::thread& t : clients) t.join();
+    for (const auto& calls : per_connection) check_calls(name, calls);
 
     s.stop();
     serving.join();
@@ -221,7 +239,9 @@ void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)()) {
 }  // namespace
 
 int main() {
-    exercise("arm R", e2e::make_reflection_arm);
-    exercise("arm P", e2e::make_protoc_arm);
+    exercise("arm R", e2e::make_reflection_arm, {}, 1);
+    exercise("arm P", e2e::make_protoc_arm, {}, 1);
+    exercise("arm R, 2 workers", e2e::make_reflection_arm, {0, 1}, 4);
+    exercise("arm P, 2 workers", e2e::make_protoc_arm, {0, 1}, 4);
     return tep_test::finish("test_server");
 }

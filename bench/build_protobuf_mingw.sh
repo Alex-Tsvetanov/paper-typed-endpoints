@@ -24,6 +24,7 @@ f0c128dc0d8492eceece83bb459a4c0e316764b929ffbf1aa416357fd644edd3  protoc-36.2-wi
 EOF
 
 mkdir -p "$prefix/logs"
+trap 'echo "build_protobuf_mingw.sh: failed; logs in $prefix/logs" >&2' ERR
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export PATH="$gcc_root/bin:$PATH"
