@@ -76,9 +76,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Results at 91dbece (pass or fail only): `linux-gcc1620-{e2e,e2e-release}` and
   `mingw-gcc1620-e2e-release` 19 of 19; `msvc-{debug,asan}` 8 of 8 portable, `reflection_layer`
   Skipped with the reason; `msvc-e2e-asan` builds, `server` fails at start-up (M2).
-- Tests: golden wire vectors from `protoc` (`tests/golden/README.md`: protoc 3.21.12 from the
-  local `ctpb-dev` image, a development oracle only); the encoder output equals them byte for
-  byte for all 15 scalar types, enums, nested and repeated fields; `#embed` reads the schemas.
+- Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
+  the encoder matches them byte for byte for all scalar types, enums, nested and repeated fields.
 - TSan: not run yet; the server has threads (`test_server`, two workers). Needs a TSan preset, a TSan
   protobuf, and `--security-opt seccomp=unconfined` in the container.
 
