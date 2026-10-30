@@ -117,8 +117,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       the MEDIUM (a backslash before a newline in a string lost the line count; now refused, as
       protoc does) and two LOW (hash-flooding fallback to a sort, capped token reservation) are
       fixed in the next commit.
-- [ ] Fresh review of c525595..c1dd0fb (Opus, running 2026-10-30); then a laptop request for a
-      timed rerun of the dispatch change (coordinator: after the review is green).
+- [x] Third fresh review (Opus, c525595..c1dd0fb, 2026-10-30): 2 HIGH (rpc space reserved per
+      service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
+      push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
+      Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
 - [ ] Next: transport (nghttp2), the benchmark server, interop, the related-work survey.
 
 ## Laptop requests
@@ -145,7 +147,9 @@ queue; design, scope and pushes still go to Alex.
    gap40-a-q1-p5-gcc-877d16d0/`, sha256 17fac736...0beb checked): `~/opt/gcc-16.2.0` on Arch, per
    `bench/requests/gcc-16.2.0.md`. g++ 16.2.0, probe line, 14 of 14, F1 as on the desktop. Make
    -j14 2,611 s, install 15 s (the basis for a rebuild). Exit 1 was a script grep, fixed (Papers 6ec4ae3).
-5. Ready 2026-10-29: `bench/requests/compile-rerun.md`, R again at head, plus 2048 and wide 4096.
+5. Queued as A27 (at 4d205b4): `bench/requests/compile-rerun.md`, R after the front-end cuts.
+6. Ready 2026-10-30: `bench/requests/compile-rerun-2.md`, R after the decoder change, plus many
+   4096 at the raised limit.
 
 ## Lab requests
 
