@@ -16,6 +16,7 @@
 #include <string_view>
 #include <vector>
 
+#include "../tests/kept_storage.hpp"
 #include "tep/reflect.hpp"
 
 namespace {
@@ -84,6 +85,8 @@ void replace_matches_decode(std::span<const std::byte> bytes, const M& prior) {
         require(ok == fresh.has_value());
         if (ok) {
             require(tep::encode(reused) == tep::encode(*fresh));
+            // Storage kept from `prior` holds no data from it.
+            require(tep_test::kept_is_default(reused));
         } else {
             require(err == fresh.error());
         }
@@ -101,6 +104,7 @@ void replace_after(std::span<const std::byte> first, std::span<const std::byte> 
     require(ok == fresh.has_value());
     if (ok) {
         require(tep::encode(m) == tep::encode(*fresh));
+        require(tep_test::kept_is_default(m));
     } else {
         require(err == fresh.error());
     }

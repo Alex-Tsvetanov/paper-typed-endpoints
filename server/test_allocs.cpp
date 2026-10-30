@@ -82,10 +82,10 @@ int main() {
         const double at_small = count(name, *a, "small", "/bench.e2e.Echo/EchoPerson", small);
         const double at_medium = count(name, *a, "medium", "/bench.e2e.Echo/EchoOrder", medium);
         if (std::string_view(name) == "S") TEP_CHECK(at_small == 0 && at_medium == 0);
-        // R: nothing for Person (short strings). For Order, the request is parsed into the storage of
-        // the previous one (no allocation); the copy into the cleared response allocates its nested
-        // customer and its email, 12 items (each a name and its tags) and one long label.
-        if (std::string_view(name) == "R") TEP_CHECK(at_small == 0 && at_medium <= 27);
+        // R: the request is parsed into the storage of the previous one, and the copy into the
+        // cleared response reuses the elements, strings and nested customer clear kept
+        // (tep::repeated, tep::box), so a steady run of identical requests allocates nothing.
+        if (std::string_view(name) == "R") TEP_CHECK(at_small == 0 && at_medium == 0);
         // Q: protobuf's Clear() keeps repeated elements, string capacity and the nested customer
         // (protobuf 36.2, pinned), so a steady run of identical requests allocates nothing.
         if (std::string_view(name) == "Q") TEP_CHECK(at_small == 0 && at_medium == 0);

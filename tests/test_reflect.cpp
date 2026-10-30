@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "check.hpp"
+#include "kept_storage.hpp"
 #include "tep/reflect.hpp"
 
 struct everything_proto {
@@ -94,7 +95,8 @@ static_assert(std::is_same_v<decltype(Everything::f_bytes), std::string>);
 static_assert(std::is_same_v<decltype(Everything::f_enum), std::int32_t>);
 static_assert(std::is_same_v<decltype(Everything::f_inner), tep::box<Inner>>);
 static_assert(sizeof(tep::box<Inner>) == sizeof(void*), "an absent sub-message costs one pointer");
-static_assert(std::is_same_v<decltype(Everything::r_inner), std::vector<Inner>>);
+static_assert(std::is_same_v<decltype(Everything::r_inner), tep::repeated<Inner>>);
+static_assert(std::is_same_v<decltype(Everything::r_string), tep::repeated<std::string>>);
 static_assert(std::is_same_v<decltype(Everything::r_sint64), std::vector<std::int64_t>>);
 static_assert(std::is_same_v<decltype(Everything::class_), std::int32_t>, "a keyword field gets a trailing underscore");
 static_assert(tep::enum_value<everything_proto, "tep.test.Color.NEG"> == -3);
@@ -327,17 +329,24 @@ Holder sparse_holder() {
     return h;
 }
 
-// The capacity of every string and vector a Holder holds, nested ones included.
+// The capacity of every string and vector a Holder holds, nested ones included, with the storage
+// kept for reuse: elements past size() and the storage of absent nested messages.
+std::size_t held_capacity(const Leaf& l) {
+    std::size_t n = l.label.capacity() + l.values.capacity() * sizeof(std::int64_t);
+    if (const Twig* t = l.twig.kept_storage()) n += sizeof(Twig) + t->s.capacity();
+    n += l.twigs.capacity() * sizeof(Twig);
+    for (const Twig& t : l.twigs.kept_storage()) n += t.s.capacity();
+    return n;
+}
+
 std::size_t held_capacity(const Holder& h) {
     std::size_t n = h.many.capacity() * sizeof(Leaf) + h.packed.capacity() * sizeof(std::int32_t);
     n += h.name.capacity() + h.raw.capacity() + h.tags.capacity() * sizeof(std::string);
-    for (const std::string& t : h.tags) n += t.capacity();
-    for (const Leaf& l : h.many) {
-        n += l.label.capacity() + l.values.capacity() * sizeof(std::int64_t);
-        if (l.twig) n += sizeof(Twig) + l.twig->s.capacity();
-        n += l.twigs.capacity() * sizeof(Twig);
-        for (const Twig& t : l.twigs) n += t.s.capacity();
-    }
+    n += h.blobs.capacity() * sizeof(std::string);
+    for (const std::string& t : h.tags.kept_storage()) n += t.capacity();
+    for (const std::string& b : h.blobs.kept_storage()) n += b.capacity();
+    if (const Leaf* one = h.one.kept_storage()) n += sizeof(Leaf) + held_capacity(*one);
+    for (const Leaf& l : h.many.kept_storage()) n += held_capacity(l);
     return n;
 }
 
@@ -436,7 +445,7 @@ void test_reuse_is_bounded() {
     std::size_t largest_wire = 0;
     for (std::size_t j = 1; j <= 40; ++j) {
         Holder m{};
-        m.tags.assign(j, std::string{});
+        m.tags.resize(j);
         m.tags[j - 1] = std::string(2000, 'x');
         const auto bytes = tep::encode(m);
         largest_wire = std::max(largest_wire, bytes.size());
@@ -450,14 +459,58 @@ void test_reuse_is_bounded() {
     for (std::int32_t i = 0; i < 5000; ++i) big.many.push_back(leaf(i, {}, {}));
     big.many[0].values.assign(10'000, 5);  // numbers inside a reused element
     big.many[0].twig = Twig{.n = 1, .s = std::string(5000, 'w')};
-    big.many[0].twigs.assign(500, Twig{.n = 2, .s = std::string(100, 's')});
+    big.many[0].twigs.resize(500, Twig{.n = 2, .s = std::string(100, 's')});
     big.packed.assign(10'000, 3);
     big.name = std::string(10'000, 'n');
     TEP_CHECK(tep::parse_from(h, tep::wire::reader(tep::encode(big)), err) && h == big);
     const Holder small = sparse_holder();
     const auto small_bytes = tep::encode(small);
     for (int k = 0; k < 2; ++k) TEP_CHECK(tep::parse_from(h, tep::wire::reader(small_bytes), err) && h == small);
-    TEP_CHECK(held_capacity(h) <= 4096);
+    // What remains is the small message and the reset elements kept for reuse, at most twice the
+    // last element count plus 16 per field (about 20 Leafs, 18 Twigs and 18 tag strings here), none
+    // of it sized by the big message, which held over 500 KB.
+    TEP_CHECK(held_capacity(h) <= 8192);
+    TEP_CHECK(tep_test::kept_is_default(h));
+}
+
+// Storage kept for reuse holds no data: after shrinking parses, copies, clears, initializer lists
+// and resizes, every element past size() and the storage of every absent nested message equals the
+// default, at every depth, and the kept storage is what the next message reuses.
+void test_kept_storage() {
+    tep::decode_error err{};
+    const auto rich = tep::encode(rich_holder());
+    const auto sparse = tep::encode(sparse_holder());
+    Holder h{};
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && tep_test::kept_is_default(h));
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(sparse), err) && h == sparse_holder());
+    TEP_CHECK(tep_test::kept_is_default(h));
+    TEP_CHECK(h.one.holds_storage() && !h.one.has_value() && h.many.kept_storage().size() == 3);
+    // The kept nested message is reused: the same storage holds the next present value.
+    const Leaf* one = h.one.kept_storage();
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && h == rich_holder() && &*h.one == one);
+    h = sparse_holder();
+    TEP_CHECK(h == sparse_holder() && tep_test::kept_is_default(h));
+    h = rich_holder();
+    TEP_CHECK(h == rich_holder() && tep_test::kept_is_default(h));
+    tep::clear(h);
+    TEP_CHECK(h == Holder{} && tep_test::kept_is_default(h));
+    h = rich_holder();
+    h.many[2].twigs = {Twig{.n = 1, .s = "one"}};
+    h.tags.resize(1);
+    h.many.resize(1);
+    h.many.resize(2, leaf(7, "seven", {7}));
+    TEP_CHECK(h.many.size() == 2 && h.many[1] == leaf(7, "seven", {7}) && tep_test::kept_is_default(h));
+    // A copy reuses kept elements: no element moves to new storage.
+    const Leaf* elements = h.many.data();
+    const Holder rich_value = rich_holder();
+    h = rich_value;
+    TEP_CHECK(h.many.data() == elements && h == rich_value);
+    // push_back of an element of the same sequence, with and without a kept element to reuse.
+    h.many.push_back(h.many[0]);
+    tep::clear(h);
+    h.many.push_back(leaf(1, "a label longer than the small-string buffer", {1}));
+    h.many.push_back(h.many[0]);
+    TEP_CHECK(h.many.size() == 2 && h.many[1] == h.many[0] && tep_test::kept_is_default(h));
 }
 
 // encode and encode_framed write back to front; encode_to, front to back, is the reference. The
@@ -519,6 +572,7 @@ int main() {
     test_parse_from();
     test_clear();
     test_reuse_is_bounded();
+    test_kept_storage();
     test_backward_writer();
     return tep_test::finish("test_reflect");
 }

@@ -130,3 +130,30 @@ Decided by this session under D2 (no new question; decision notice to the coordi
   search. The diagnostics keep their text; two negative tests now cover the private and the
   overloaded handler. Generated code is unchanged (same .text and GIMPLE at many 1024).
 - Its compile effect is measured on the laptop (`bench/requests/compile-handlers.md`).
+
+## 2026-10-30. Keep-storage types; the many shape reported as measured
+
+Decided by Alex (AskUserQuestion through the coordinator, 2026-10-30); his picks verbatim:
+- Medium gap: "Keep-storage types (Recommended)".
+- Many shape: "Report as measured (Recommended)".
+
+The question: pilot 4 (A38b) had Q ahead of R on the medium payload by 6 to 15% at the saturating
+loads, and its profile put the whole gap in R's 27 heap allocations per call (the copy into the
+cleared response rebuilt elements that std::vector and the box freed when cleared). And message
+reuse had made R's many-shape compiles slower (A38, A39).
+
+- Generated types, an API change: repeated message, string and bytes fields are
+  `tep::repeated<T>`, a vector-like sequence that keeps the elements it loses, reset to their
+  default, and reuses them, as protobuf's repeated fields keep cleared elements. `tep::box` keeps
+  its storage when cleared and stays one pointer (presence is the pointer's low bit). Repeated
+  scalar fields stay `std::vector<T>`.
+- `parse_from` is `clear` plus merge, as protobuf's ParseFromArray is. The replace mode (a parse
+  state per message, overwriting by arrival index, truncation at the end) is removed.
+- Storage kept for reuse holds no data from an earlier message: every kept element and the storage
+  of every absent nested message equals its default, at every depth (`tests/kept_storage.hpp`,
+  checked in `test_reflect` and in `fuzz_decode` after every `parse_from`). The memory bound keeps
+  its form: what a reused message holds is what the last message or the one before it decoded
+  into, up to about twice that plus slack per container, plus up to twice a repeated field's
+  element count plus 16 reset elements.
+- R medium allocates nothing per call in a steady run of identical requests (`test_allocs`, a count,
+  was 27), as Q. The many-shape compile cost is reported as measured, with reuse on.

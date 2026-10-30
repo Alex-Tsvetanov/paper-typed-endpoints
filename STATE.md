@@ -28,8 +28,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
     `enum_value`, codec (`byte_size`, `encode_to`, `encode`, `encode_framed`, `merge_from`,
     `decode`), member-wise `operator==`, and `endpoint<S, "pkg.Service", Impl>` with
     `invoke` and `invoke_framed`. Hard `#error` without `__cpp_impl_reflection`; no fallback.
-- Supported proto3: scalars, enums (as `int32_t`), nested messages (`tep::box<M>`, one pointer
-  when absent), repeated (packed by default, `[packed]` honored), reserved, the descriptor.proto
+- Supported proto3: scalars, enums (as `int32_t`), nested messages (`tep::box<M>`, one pointer,
+  keeps storage when cleared), repeated (`tep::repeated<T>` for messages, strings and bytes, which
+  keeps cleared elements; `std::vector` otherwise; packed by default), reserved, the descriptor.proto
   options of each level (allow-lists), services with unary rpcs. Unknown and custom options are
   refused (custom options need an import). Refused with a diagnostic: map, oneof, `optional`, `required`, groups, extensions,
   import, editions, streaming, recursive messages, `[default]`, `message_set_wire_format`.
@@ -54,10 +55,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   cycles). R loses many from 2048 (A29): per-field decode against protoc's tables.
 - Heap allocations per call (`test_allocs`, a count, identical requests): small 0 for every arm;
   medium S 0, P 32 (arena strings keep heap buffers), Q 0 (protobuf's cleared repeated fields
-  keep their elements), R 93, then 62 (growth fix), then 27 (reuse: the copy into the cleared
-  response builds 12 items, the customer and one long label; a std::vector cannot keep cleared
-  elements). Reuse: `parse_from` gives decode's result (fuzzed, split inputs), retained storage
-  within twice the last messages' (slack rule), slots taken out per call (re-entry safe).
+  keep their elements), R 93, 62 (growth fix), 27 (reuse), 0 (keep-storage types, Alex). Reuse:
+  `parse_from` is clear plus merge (fuzzed, split inputs); kept storage holds no earlier data
+  (`tests/kept_storage.hpp`); slack rule per container; slots taken out per call (re-entry safe).
   Size proxy, not timed: .text many 1024 +15.2%, wide 1024 +2.4% (60eff0e to reuse); then many 1024
   +0.5%, many 2048 +0.6%, wide 1024 -5.8% (back writer; GIMPLE statements many 1024 -0.6%).
 - Constant-evaluation budget: GCC 16's default `-fconstexpr-ops-limit` is 33,554,432 operations

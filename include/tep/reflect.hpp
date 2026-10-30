@@ -29,6 +29,7 @@
 #include <cstdint>
 #include <exception>
 #include <expected>
+#include <initializer_list>
 #include <iterator>
 #include <memory>
 #include <new>
@@ -74,42 +75,96 @@ struct message_traits<message<Schema, Index>> {
 template <class T>
 concept synthesized_message = requires { message_traits<T>::index; };
 
-// A singular message field: an optional value on the heap, so an absent sub-message costs one
-// pointer instead of its whole size (a message type holds its sub-messages through boxes).
+namespace detail {
+
+// Storage kept for reuse stays in proportion to the messages it held: a string or vector whose
+// capacity passes twice its size plus the slack gives the rest back when it is cleared, and a
+// repeated field keeps at most twice its element count plus vector_slack elements.
+inline constexpr std::size_t string_slack = 64;
+inline constexpr std::size_t vector_slack = 16;
+
+// Resets a kept element or nested message to its default value, keeping its storage within the
+// slack (defined with the codec, for strings and synthesized messages).
+template <class T>
+void reset_kept(T& v);
+
+}  // namespace detail
+
+// A singular message field. The value lives on the heap, so an absent sub-message costs one pointer
+// instead of its whole size (a message type holds its sub-messages through boxes). Like protobuf's
+// messages, a box keeps its storage when the field is cleared: reset() makes it absent and resets
+// the kept message to the default, and the next emplace() or assignment reuses it, so a message
+// reused across calls does not allocate again for a sub-message it already held. Presence is the
+// low bit of the pointer (heap storage is at least two-byte aligned).
 template <class T>
 class box {
 public:
     box() noexcept = default;
-    box(const T& v) : p_(std::make_unique<T>(v)) {}
-    box(T&& v) : p_(std::make_unique<T>(std::move(v))) {}
-    box(const box& o) : p_(o.p_ ? std::make_unique<T>(*o.p_) : nullptr) {}
-    box(box&&) noexcept = default;
+    box(const T& v) : bits_(make(v) | present) {}
+    box(T&& v) : bits_(make(std::move(v)) | present) {}
+    box(const box& o) : bits_(o.has_value() ? make(*o) | present : 0) {}
+    box(box&& o) noexcept : bits_(std::exchange(o.bits_, 0)) {}
     box& operator=(const box& o) {
-        if (this != &o) p_ = o.p_ ? std::make_unique<T>(*o.p_) : nullptr;
+        if (this == &o) return *this;
+        if (o.has_value()) {
+            assign(*o);
+        } else {
+            reset();
+        }
         return *this;
     }
-    box& operator=(box&&) noexcept = default;
+    box& operator=(box&& o) noexcept {
+        if (this != &o) {
+            destroy();
+            bits_ = std::exchange(o.bits_, 0);
+        }
+        return *this;
+    }
     box& operator=(const T& v) {
-        p_ = std::make_unique<T>(v);
+        assign(v);
         return *this;
     }
     box& operator=(T&& v) {
-        p_ = std::make_unique<T>(std::move(v));
+        assign(std::move(v));
         return *this;
     }
-    ~box() = default;
+    ~box() { destroy(); }
 
-    [[nodiscard]] bool has_value() const noexcept { return p_ != nullptr; }
-    explicit operator bool() const noexcept { return p_ != nullptr; }
-    T& operator*() noexcept { return *p_; }
-    const T& operator*() const noexcept { return *p_; }
-    T* operator->() noexcept { return p_.get(); }
-    const T* operator->() const noexcept { return p_.get(); }
+    [[nodiscard]] bool has_value() const noexcept { return (bits_ & present) != 0; }
+    explicit operator bool() const noexcept { return has_value(); }
+    T& operator*() noexcept { return *stored(); }
+    const T& operator*() const noexcept { return *stored(); }
+    T* operator->() noexcept { return stored(); }
+    const T* operator->() const noexcept { return stored(); }
+
+    // Makes the field present with the default message, reusing kept storage.
     T& emplace() {
-        p_ = std::make_unique<T>();
-        return *p_;
+        if (has_value()) {
+            detail::reset_kept(*stored());
+        } else if (stored() == nullptr) {
+            bits_ = make();
+        }
+        bits_ |= present;
+        return *stored();
     }
-    void reset() noexcept { p_.reset(); }
+
+    // Makes the field absent. The storage is kept, reset to the default message; storage kept while
+    // the field was already absent is reset again, which gives back what its contents kept from the
+    // last message that set it.
+    void reset() {
+        bits_ &= ~present;
+        if (T* const p = stored()) detail::reset_kept(*p);
+    }
+
+    // Makes the field absent and frees the storage.
+    void release() noexcept {
+        destroy();
+        bits_ = 0;
+    }
+
+    // Whether storage is held, present or kept (for memory accounting).
+    [[nodiscard]] bool holds_storage() const noexcept { return stored() != nullptr; }
+    [[nodiscard]] const T* kept_storage() const noexcept { return stored(); }
 
     friend bool operator==(const box& a, const box& b) {
         if (a.has_value() != b.has_value()) return false;
@@ -117,7 +172,201 @@ public:
     }
 
 private:
-    std::unique_ptr<T> p_;
+    static constexpr std::uintptr_t present = 1;
+    static_assert(alignof(std::max_align_t) >= 2, "box keeps presence in the pointer's low bit");
+
+    template <class... A>
+    static std::uintptr_t make(A&&... a) {
+        T* const p = new T(std::forward<A>(a)...);
+        const auto bits = reinterpret_cast<std::uintptr_t>(p);
+        assert((bits & present) == 0);
+        return bits;
+    }
+    [[nodiscard]] T* stored() const noexcept { return reinterpret_cast<T*>(bits_ & ~present); }
+    void destroy() noexcept { delete stored(); }
+
+    // Copies v into the kept storage, or into new storage. A copy that throws into kept storage of
+    // an absent field frees it, so no storage outside the field's value holds partial data.
+    template <class V>
+    void assign(V&& v) {
+        T* const p = stored();
+        if (p == nullptr) {
+            bits_ = make(std::forward<V>(v)) | present;
+            return;
+        }
+        const bool was_present = has_value();
+        try {
+            *p = std::forward<V>(v);
+        } catch (...) {
+            if (!was_present) release();
+            throw;
+        }
+        bits_ |= present;
+    }
+
+    std::uintptr_t bits_ = 0;
+};
+
+// A repeated message, string or bytes field: a vector-like sequence whose elements are kept, reset to
+// their default, when the sequence shrinks, and reused when it grows again, as protobuf's repeated
+// fields keep cleared elements. A message reused across calls then does not allocate again for
+// elements, strings and sub-messages it already held. Every element past size() is a kept element
+// equal to T{}; at most twice the last size plus vector_slack elements are kept.
+template <class T>
+class repeated {
+public:
+    using value_type = T;
+    using size_type = std::size_t;
+    using iterator = typename std::vector<T>::iterator;
+    using const_iterator = typename std::vector<T>::const_iterator;
+    using reverse_iterator = std::reverse_iterator<iterator>;
+    using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+    repeated() = default;
+    repeated(std::initializer_list<T> l) : items_(l), n_(l.size()) {}
+    repeated(const repeated& o) : items_(o.begin(), o.end()), n_(o.n_) {}
+    repeated(repeated&& o) noexcept : items_(std::move(o.items_)), n_(std::exchange(o.n_, 0)) { o.items_.clear(); }
+    repeated& operator=(const repeated& o) {
+        if (this != &o) assign(o.begin(), o.end());
+        return *this;
+    }
+    repeated& operator=(repeated&& o) noexcept {
+        if (this != &o) {
+            items_ = std::move(o.items_);
+            n_ = std::exchange(o.n_, 0);
+            o.items_.clear();
+        }
+        return *this;
+    }
+    repeated& operator=(std::initializer_list<T> l) {
+        assign(l.begin(), l.end());
+        return *this;
+    }
+    ~repeated() = default;
+
+    [[nodiscard]] size_type size() const noexcept { return n_; }
+    [[nodiscard]] bool empty() const noexcept { return n_ == 0; }
+    [[nodiscard]] size_type capacity() const noexcept { return items_.capacity(); }
+    T& operator[](size_type i) noexcept { return items_[i]; }
+    const T& operator[](size_type i) const noexcept { return items_[i]; }
+    T& front() noexcept { return items_[0]; }
+    const T& front() const noexcept { return items_[0]; }
+    T& back() noexcept { return items_[n_ - 1]; }
+    const T& back() const noexcept { return items_[n_ - 1]; }
+    T* data() noexcept { return items_.data(); }
+    const T* data() const noexcept { return items_.data(); }
+    iterator begin() noexcept { return items_.begin(); }
+    iterator end() noexcept { return items_.begin() + static_cast<std::ptrdiff_t>(n_); }
+    const_iterator begin() const noexcept { return items_.begin(); }
+    const_iterator end() const noexcept { return items_.begin() + static_cast<std::ptrdiff_t>(n_); }
+    reverse_iterator rbegin() noexcept { return reverse_iterator(end()); }
+    reverse_iterator rend() noexcept { return reverse_iterator(begin()); }
+    const_reverse_iterator rbegin() const noexcept { return const_reverse_iterator(end()); }
+    const_reverse_iterator rend() const noexcept { return const_reverse_iterator(begin()); }
+
+    void reserve(size_type n) { items_.reserve(n); }
+
+    // Appends a default element, reusing a kept one.
+    T& emplace_back() {
+        if (n_ == items_.size()) items_.emplace_back();
+        return items_[n_++];
+    }
+    void push_back(const T& v) { put(v); }
+    void push_back(T&& v) { put(std::move(v)); }
+
+    // Removes every element; they are reset and kept.
+    void clear() { truncate(0); }
+
+    void resize(size_type n) {
+        if (n < n_) {
+            truncate(n);
+        } else {
+            while (n_ < n) emplace_back();
+        }
+    }
+    void resize(size_type n, const T& v) {
+        if (n < n_) {
+            truncate(n);
+        } else {
+            while (n_ < n) push_back(v);
+        }
+    }
+
+    // Every element held, the kept ones after size() included (for memory accounting and tests).
+    [[nodiscard]] std::span<const T> kept_storage() const noexcept { return items_; }
+
+    friend bool operator==(const repeated& a, const repeated& b) {
+        return a.n_ == b.n_ && std::equal(a.begin(), a.end(), b.begin());
+    }
+
+private:
+    // Appends v, assigned into a kept element when there is one. With none, std::vector appends it
+    // (which allows v to be one of the elements). An assignment that throws drops the kept elements,
+    // so none holds partial data; the live ones stay.
+    template <class V>
+    void put(V&& v) {
+        if (n_ == items_.size()) {
+            items_.push_back(std::forward<V>(v));
+        } else {
+            try {
+                items_[n_] = std::forward<V>(v);
+            } catch (...) {
+                items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(n_), items_.end());
+                throw;
+            }
+        }
+        ++n_;
+    }
+
+    // Keeps the first n elements. The rest are kept, at most twice the previous size plus the slack,
+    // and reset: an element that was live is reset within what it held, and one already kept again,
+    // which gives back what it kept from an earlier message. A reset that throws drops every
+    // element, so no kept element holds partial data.
+    void truncate(size_type n) {
+        const size_type before = n_;
+        try {
+            bound(std::max(n, before));
+            for (size_type i = n; i < items_.size(); ++i) detail::reset_kept(items_[i]);
+        } catch (...) {
+            items_.clear();
+            n_ = 0;
+            throw;
+        }
+        n_ = n;
+    }
+
+    // Keeps at most twice `size` plus the slack elements, and capacity within the same.
+    void bound(size_type size) {
+        const size_type keep = 2 * size + detail::vector_slack;
+        if (items_.size() > keep) items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(keep), items_.end());
+        if (items_.capacity() > keep) items_.shrink_to_fit();
+    }
+
+    // Replaces the elements with [first, last): live and kept elements are assigned in place, so
+    // their storage is reused. A copy that throws drops every element.
+    template <class It>
+    void assign(It first, It last) {
+        const size_type before = n_;
+        size_type i = 0;
+        try {
+            for (; first != last; ++first, ++i) {
+                if (i < items_.size()) {
+                    items_[i] = *first;
+                } else {
+                    items_.push_back(*first);
+                }
+            }
+            n_ = std::max(before, i);
+            truncate(i);
+        } catch (...) {
+            items_.clear();
+            n_ = 0;
+            throw;
+        }
+    }
+
+    std::vector<T> items_;  // [0, n_) live, then kept elements equal to T{}
+    size_type n_ = 0;
 };
 
 enum class decode_error : std::uint8_t {
@@ -419,7 +668,8 @@ consteval std::meta::info message_type(std::uint32_t index) {
 
 // Member types: proto3 scalars map to fixed-width integers, float, double, bool and
 // std::string (string and bytes, as in protoc's C++ output); enums to std::int32_t (proto3
-// enums are open); a singular message to tep::box<M>; repeated T to std::vector<T>.
+// enums are open); a singular message to tep::box<M>; repeated messages, strings and bytes to
+// tep::repeated<T>, which keeps cleared elements for reuse; other repeated T to std::vector<T>.
 template <class Schema>
 consteval std::meta::info member_type(const field_meta& f) {
     std::meta::info base{};
@@ -428,7 +678,10 @@ consteval std::meta::info member_type(const field_meta& f) {
         case schema::field_kind::enumeration: base = type_of<std::int32_t>(); break;
         case schema::field_kind::message: base = message_type<Schema>(f.type_index); break;
     }
-    if (f.repeated) return std::meta::substitute(^^std::vector, {base});
+    const bool heap_elements = f.kind == schema::field_kind::message ||
+                               (f.kind == schema::field_kind::scalar &&
+                                (f.type == schema::scalar::string || f.type == schema::scalar::bytes));
+    if (f.repeated) return std::meta::substitute(heap_elements ? ^^repeated : ^^std::vector, {base});
     if (f.kind == schema::field_kind::message) return std::meta::substitute(^^box, {base});
     return base;
 }
@@ -1002,61 +1255,10 @@ consteval std::vector<std::uint32_t> iota(std::uint32_t first, std::uint32_t cou
     return v;
 }
 
-// The members whose storage a parse in replace mode keeps, as member indices: first the counted
-// ones (repeated messages, strings and bytes, whose elements are overwritten in place in arrival
-// order), then the boxed ones (singular messages, whose storage is reused when the field arrives
-// again). Every other member is cleared at the start.
-template <class T>
-consteval std::vector<std::uint32_t> make_kept_members() {
-    std::vector<std::uint32_t> counted;
-    std::vector<std::uint32_t> boxed;
-    const auto& fields = tables<typename message_traits<T>::schema>.fields;
-    for (std::uint32_t k = 0; k < meta_of<T>().field_count; ++k) {
-        const field_meta& f = fields[meta_of<T>().first_field + k];
-        if (f.repeated && element_wire(f) == wire::wire_type::len) {
-            counted.push_back(k);
-        } else if (!f.repeated && f.kind == schema::field_kind::message) {
-            boxed.push_back(k);
-        }
-    }
-    counted.insert(counted.end(), boxed.begin(), boxed.end());
-    return counted;
-}
-
-template <class T>
-inline constexpr auto kept_members = std::define_static_array(make_kept_members<T>());
-
-template <class T>
-consteval std::size_t make_counted_count() {
-    const auto& fields = tables<typename message_traits<T>::schema>.fields;
-    std::size_t n = 0;
-    for (const std::uint32_t k : kept_members<T>) n += fields[meta_of<T>().first_field + k].repeated ? 1u : 0u;
-    return n;
-}
-
-template <class T>
-inline constexpr std::size_t counted_count = make_counted_count<T>();
-
-consteval std::size_t position_of(std::span<const std::uint32_t> in, std::uint32_t k) {
-    for (std::size_t i = 0; i < in.size(); ++i)
-        if (in[i] == k) return i;
-    fail("tep: internal error, member not kept");
-}
-
-inline constexpr std::size_t string_slack = 64;
-inline constexpr std::size_t vector_slack = 16;
-
-// Storage kept for reuse stays in proportion to the messages decoded: a string or vector whose
-// capacity passes twice its size plus `slack` gives the rest back, so a run of calls cannot ratchet
-// a reused message's memory up (each element keeping the largest value it ever held). These
-// helpers are out of line, one function per container type, so that parse_message, instantiated
-// for every message, stays small for the compiler.
-template <class C>
-[[gnu::noinline]] constexpr void shrink_if_slack(C& c, std::size_t slack) {
-    if (c.capacity() > 2 * c.size() + slack) c.shrink_to_fit();
-}
-
-// Empties c, then gives back capacity beyond twice its previous size plus `slack`.
+// Empties c, then gives back capacity beyond twice its previous size plus `slack`, so a run of
+// calls cannot ratchet a reused message's memory up (each container keeping the largest value it
+// ever held). Out of line, one function per container type, so that the per-message code the
+// compiler sees stays small.
 template <class C>
 [[gnu::noinline]] constexpr void clear_within_slack(C& c, std::size_t slack) {
     const std::size_t before = c.size();
@@ -1064,33 +1266,14 @@ template <class C>
     if (c.capacity() > 2 * before + slack) c.shrink_to_fit();
 }
 
-// Keeps the first `n` elements of c, within the slack.
-template <class C>
-[[gnu::noinline]] constexpr void truncate_within_slack(C& c, std::size_t n) {
-    if (n < c.size()) c.erase(c.begin() + static_cast<std::ptrdiff_t>(n), c.end());
-    if (c.capacity() > 2 * c.size() + vector_slack) c.shrink_to_fit();
-}
-
-template <class B>
-[[gnu::noinline]] constexpr void release_box(B& b) noexcept {
-    b.reset();
-}
-
-// One parse of one message in replace mode: per counted member, the elements filled so far; per
-// boxed member, whether the field has arrived (its first arrival replaces the kept message, later
-// ones merge, as in decode). Merge mode has none (a null pointer), so decoding a message with many
-// counted members costs nothing extra per arrival.
-template <class T>
-struct parse_state {
-    std::array<std::uint32_t, counted_count<T>> used;
-    std::array<bool, kept_members<T>.size() - counted_count<T>> seen;
-};
-
 template <synthesized_message T>
-constexpr bool parse_message(T& msg, wire::reader r, decode_error& err, bool replace);
+constexpr bool parse_message(T& msg, wire::reader r, decode_error& err);
 
+// One occurrence of member K. Repeated messages, strings and bytes decode into the element
+// tep::repeated appends, which reuses a kept element and its storage; a singular message into its
+// box, which reuses kept storage. Merging into a cleared message is how parse_from replaces one.
 template <class T, std::uint32_t K>
-constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_error& err, parse_state<T>* st) {
+constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_error& err) {
     constexpr field_meta F = field_of<T, K>;
     auto& v = msg.[:members<T>[K]:];
     using V = std::remove_reference_t<decltype(v)>;
@@ -1100,49 +1283,32 @@ constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_e
         if constexpr (F.kind == schema::field_kind::message) {
             std::span<const std::byte> s;
             if (!r.length_delimited(s, re)) return err = from_read(re), false;
-            if (st != nullptr) {
-                const std::uint32_t at = st->used[position_of(kept_members<T>, K)]++;
-                if (at < v.size()) return parse_message(v[at], wire::reader(s), err, true);
-            }
             if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
-            v.emplace_back();
-            return parse_message(v.back(), wire::reader(s), err, false);
+            return parse_message(v.emplace_back(), wire::reader(s), err);
         } else {
-            constexpr auto S = effective(F);
-            if (st != nullptr) {
-                const std::uint32_t at = st->used[position_of(kept_members<T>, K)]++;
-                if (at < v.size()) {
-                    if (!read_value<S>(r, v[at], err)) return false;
-                    shrink_if_slack(v[at], string_slack);
-                    return true;
-                }
+            // The string is read into its element, so the look ahead starts past it on a copy.
+            if (v.size() == v.capacity()) {
+                wire::reader ahead = r;
+                std::span<const std::byte> s;
+                const bool whole = ahead.length_delimited(s, re);
+                reserve_more(v, 1 + (whole ? following_elements<F>(ahead, max_hint<V> - 1) : 0));
             }
-            typename V::value_type e{};
-            if (!read_value<S>(r, e, err)) return false;
-            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
-            v.push_back(std::move(e));
-            return true;
+            return read_value<effective(F)>(r, v.emplace_back(), err);
         }
     } else if constexpr (F.kind == schema::field_kind::message) {
         wire::read_error re{};
         if (wt != wire::wire_type::len) return r.skip(wt, F.number, re) || (err = from_read(re), false);
         std::span<const std::byte> s;
         if (!r.length_delimited(s, re)) return err = from_read(re), false;
-        bool replace = false;
-        if (st != nullptr) {
-            bool& seen = st->seen[position_of(kept_members<T>, K) - counted_count<T>];
-            replace = !seen;
-            seen = true;
-        }
         if (!v.has_value()) v.emplace();
-        return parse_message(*v, wire::reader(s), err, replace);
+        return parse_message(*v, wire::reader(s), err);
     } else {
         return read_field<F>(v, r, wt, err);
     }
 }
 
 template <class T>
-using member_reader = bool (*)(T&, wire::reader&, wire::wire_type, decode_error&, parse_state<T>*);
+using member_reader = bool (*)(T&, wire::reader&, wire::wire_type, decode_error&);
 
 template <class T>
 inline constexpr auto readers = []<std::size_t... K>(std::index_sequence<K...>) {
@@ -1200,18 +1366,18 @@ constexpr std::uint32_t slot_of(std::uint32_t number) noexcept {
 
 namespace detail {
 
-// Resets members to their defaults. Strings and vectors keep their capacity unless it passes
-// twice their previous size plus the slack (shrink_if_slack). With Keep, the members a parse in
-// replace mode keeps (counted and boxed) are left as they are.
-template <bool Keep, class T>
+// Resets members to their defaults, keeping storage: nested messages and the elements of repeated
+// messages, strings and bytes are reset and kept, and strings and vectors keep their capacity
+// within twice their previous size plus the slack.
+template <class T>
 constexpr void clear_members(T& msg) {
     template for (constexpr std::uint32_t k : order<T>) {
         constexpr field_meta f = field_of<T, k>;
         auto& v = msg.[:members<T>[k]:];
         if constexpr (f.kind == schema::field_kind::message && !f.repeated) {
-            if constexpr (!Keep) release_box(v);
-        } else if constexpr (f.repeated && Keep && element_wire(f) == wire::wire_type::len) {
-            // kept: overwritten in place, then truncated
+            v.reset();
+        } else if constexpr (f.repeated && element_wire(f) == wire::wire_type::len) {
+            v.clear();
         } else if constexpr (f.repeated || effective(f) == schema::scalar::string ||
                              effective(f) == schema::scalar::bytes) {
             clear_within_slack(v, f.repeated ? vector_slack : string_slack);
@@ -1222,15 +1388,7 @@ constexpr void clear_members(T& msg) {
 }
 
 template <synthesized_message T>
-constexpr bool parse_message(T& msg, wire::reader r, decode_error& err, bool replace) {
-    parse_state<T> state;
-    parse_state<T>* st = nullptr;
-    if (replace) {
-        state.used.fill(0);
-        state.seen.fill(false);
-        st = &state;
-        clear_members<true>(msg);
-    }
+constexpr bool parse_message(T& msg, wire::reader r, decode_error& err) {
     while (!r.done()) {
         std::uint64_t tag = 0;
         wire::read_error re{};
@@ -1245,26 +1403,14 @@ constexpr bool parse_message(T& msg, wire::reader r, decode_error& err, bool rep
             template for (constexpr std::uint32_t k : order<T>) {
                 if (!known && number == field_of<T, k>.number) {
                     known = true;
-                    if (!read_member<T, k>(msg, r, wt, err, st)) return false;
+                    if (!read_member<T, k>(msg, r, wt, err)) return false;
                 }
             }
             if (!known && !r.skip(wt, number, re)) return err = from_read(re), false;
         } else if (const std::uint32_t slot = slot_of<T>(number); slot != 0) {
-            if (!readers<T>[slot - 1](msg, r, wt, err, st)) return false;
+            if (!readers<T>[slot - 1](msg, r, wt, err)) return false;
         } else if (!r.skip(wt, number, re)) {
             return err = from_read(re), false;
-        }
-    }
-    if (replace) {
-        // Elements and nested messages kept from the previous message but absent from this one.
-        template for (constexpr std::uint32_t k : kept_members<T>) {
-            constexpr std::size_t at = position_of(kept_members<T>, k);
-            auto& v = msg.[:members<T>[k]:];
-            if constexpr (at < counted_count<T>) {
-                truncate_within_slack(v, state.used[at]);
-            } else {
-                if (!state.seen[at - counted_count<T>]) release_box(v);
-            }
         }
     }
     return true;
@@ -1276,31 +1422,50 @@ constexpr bool parse_message(T& msg, wire::reader r, decode_error& err, bool rep
 // singular messages merge. Unknown fields are skipped and dropped.
 template <synthesized_message T>
 constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
-    return detail::parse_message(msg, r, err, false);
+    return detail::parse_message(msg, r, err);
+}
+
+// Resets msg to the default message and keeps its storage for reuse, as protobuf's Clear does:
+// the elements of repeated messages, strings and bytes are reset and kept (tep::repeated), nested
+// messages are reset and kept (tep::box), and strings and vectors keep their capacity. Each
+// container keeps at most about twice what it held plus a little slack (string_slack bytes,
+// vector_slack elements), so memory follows the messages a reused object holds.
+template <synthesized_message T>
+constexpr void clear(T& msg) {
+    detail::clear_members(msg);
 }
 
 // Replaces msg with the encoded message in r, with the result decode would give, reusing msg's
-// storage: the elements of repeated messages, strings and bytes, and nested messages present
-// again, are overwritten in place, and strings and vectors keep their capacity while it stays
-// within about twice what the message needs. For decoding many messages into one object, as an
-// endpoint does on every call. r must not point into msg. After a failure msg holds a partial
-// message, which the next parse_from replaces.
-// Memory: what msg holds after a call is what the last message or the one before it decoded into
-// (a cleared string or vector is measured against its previous size), up to twice that plus a
-// little slack per container; as in decode, a message of many empty nested messages decodes into
-// about sizeof(element) bytes per 2 bytes of input. A field whose size swings by more than a
-// factor of two between calls gives storage back and allocates it again on each swing.
+// storage: it clears msg and merges r into it, as protobuf's ParseFromArray does, so the
+// elements, strings and nested messages msg held are decoded into again. For decoding many
+// messages into one object, as an endpoint does on every call. r must not point into msg. After a
+// failure msg holds a partial message, which the next parse_from replaces.
+// Memory: what msg holds after a call is what the last message or the one before it decoded into,
+// up to twice that plus a little slack per container: each clear bounds a string or vector by its
+// size before the clear, a repeated field's kept elements by twice its element count plus
+// vector_slack, and resets kept elements and the storage of absent nested messages again, which
+// gives back what they kept from older messages. As in decode, a message of many empty nested
+// messages decodes into about sizeof(element) bytes per 2 bytes of input. A field whose size swings
+// by more than a factor of two between calls gives storage back and allocates it again on each
+// swing.
 template <synthesized_message T>
 constexpr bool parse_from(T& msg, wire::reader r, decode_error& err) {
-    return detail::parse_message(msg, r, err, true);
+    clear(msg);
+    return detail::parse_message(msg, r, err);
 }
 
-// Resets msg to the default message: the elements of repeated fields are destroyed and nested
-// messages released; strings and vectors keep their capacity within about twice their size.
-template <synthesized_message T>
-constexpr void clear(T& msg) {
-    detail::clear_members<false>(msg);
+namespace detail {
+
+template <class T>
+void reset_kept(T& v) {
+    if constexpr (std::same_as<T, std::string>) {
+        clear_within_slack(v, string_slack);
+    } else {
+        tep::clear(v);
+    }
 }
+
+}  // namespace detail
 
 template <synthesized_message T>
 std::expected<T, decode_error> decode(std::span<const std::byte> bytes) {
