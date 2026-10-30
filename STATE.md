@@ -148,7 +148,8 @@ queue; design, scope and pushes still go to Alex.
    0.8% of A31. R/P from c12: small 1.03 to 1.08; medium 1.01 (m1), tie (m8), 0.92 to 0.96 from m32
    (R before P this time). R medium +14.7% over A31. perf (cycles:u, c12 m128): libc 22.5% of R's
    cycles against 9.0% of P's on medium, 5.7 against 4.8% on small: the gap is R's heap allocations.
-9. Ready: `bench/requests/e2e-pilot-3.md`, arms S, R, P, Q (R with reuse; Q per Alex).
+9. Queued as A35 (after P4's A34) at 3537817: `bench/requests/e2e-pilot-3.md`, arms S, R, P, Q.
+10. Ready: `bench/requests/compile-rerun-4.md`, A29's compile rerun after reuse (R and P).
 
 ## Lab requests
 
