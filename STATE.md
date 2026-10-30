@@ -115,8 +115,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: Laptop request 11 (pilot 4: back writer, R and Q mirrored); A36; then one question to
-      Alex (R against Q on medium, many-shape compile); D5 records at the code freeze.
+- [ ] Next: attribute the reuse compile cost (proxies); pilot 4 (A38b); then one question to Alex (R
+      against Q on medium, many-shape compile with reuse); D5 records at the code freeze.
 
 ## Laptop requests
 
@@ -125,19 +125,16 @@ queue; design, scope and pushes still go to Alex.
 
 1. Done 2026-10-24 on Arch (archive `gap1-a-q4-visit-a1-c0eb9960`, sha256 files match): Arch's
    gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
-2. Done 2026-10-29 (A23 at c525595, archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256 4b01a015...cc82).
-   Pilot. Replicates within 0.3%; at 1024 R spends 62 to 78% in code generation.
+2. Done 2026-10-29 (A23 at c525595, `gap44-a-q1-p5-pilot-c2670a4d`, 4b01a015...cc82): within 0.3%.
 3. Done 2026-10-30 (A31 at fce6a17; archive `gap52-a-q2-p5-e2e-run-2bd355f5` sha256 30ed7123...619e).
    Pilot. Spread at most 1.7%; knee c12 m128; c1 m1 client-bound (about 30k req/s, every arm).
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
-5. Done 2026-10-30 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
-6. Done 2026-10-30 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
+5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710),
+   A28 at 614c9f4 (`gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
 7. Done 2026-10-30 (A29 at fa60375, archive `gap50-a-q1-p5-rerun3-4b1cde4a`, sha256 345bea80...bf09):
-   51/51 built and checked. P across A23, A27, A29 within 0.9% per cell. Same run, R/P: 0.29 and
-   0.30 at 16; wide 0.86, 0.90, 0.77 (1024, 2048, 4096); many 1.00, 1.20, 1.56 (R loses from 2048;
-   many 4096 at the raised limit). RSS: R lower for wide, 2.9 times P at many 4096. A27 to A28 cut
-   R wide (4096: 246.90 to 126.62 s, code generation 229 to 106 s); many unchanged. Pilot.
+   51/51; P across A23 to A29 within 0.9%. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to
+   4096); many 1.00, 1.20, 1.56. RSS: R 2.9 times P at many 4096. A27 to A28 cut R wide 4096 by half.
 8. Done 2026-10-30 (A33 at 16fdbd5; archives `gap55-a-q1-p5-e2e2-build-cb4bb3c2` sha256
    9fe06b9d...d036, `gap55-a-q2-p5-e2e2-run-f472a6ce` sha256 b083da61...080f). Pilot. Checks pass.
    R/P small 1.03 to 1.08, medium 0.92 to 1.01. perf (cycles:u, c12 m128, sums of listed symbols):
@@ -148,8 +145,11 @@ queue; design, scope and pushes still go to Alex.
    1.01 to 1.11) and Q on small (1.005 to 1.03); Q beats R on medium (0.99, then 0.84 to 0.91 from c12
    m8), but the later arm lost in both orders. Profile proxy, user cycles per medium request: R 9,178
    (A33 10,291), P 9,535, Q 7,927; libc R 16.3%, Q 4.7%; R's own code ties Q's: the gap is allocation.
-10. Queued as chain A38 step 1 at 30818a5 (`compile-rerun-4.md`, job p5-compile-rerun4b-l; A36 was
-    refused before launch on the coordinator's side). R and P swap on even replicates.
+10. Done 2026-10-30 (A38 step 1 at 30818a5, `compile-rerun-4.md`; archive `gap60-a-q1-p5-rerun4b-c9812e38`
+    sha256 5f817497...acc6): 51/51, P within 0.8% of A29. R against A29, 16 to 4096: many +8, +24, +27,
+    +24%; wide +6, +3.5, 0, -2.4%. R/P many 0.33, 1.24, 1.52, 1.92 (R loses from 1024); wide 0.30,
+    0.89, 0.90, 0.74. R many 1024: instantiation 5.2 to 8.0 s, code generation 21.6 to 26.5 s,
+    parsing unchanged, RSS 947 to 1,234 MiB. The reuse code (one slot per rpc, replace mode). Pilot.
 11. Queued as A38 steps 2 and 3 at 30818a5: `bench/requests/e2e-pilot-4.md` (scripts: I review first).
 
 ## Lab requests
