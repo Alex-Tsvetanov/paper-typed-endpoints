@@ -9,6 +9,9 @@
 #
 # Usage: build_protobuf.sh <folder with the downloads> <install prefix> [jobs]
 # The compiler is $GCC/bin/g++ (default ~/opt/gcc-16.2.0). Logs go to <prefix>/logs.
+# EXTRA_FLAGS (for example the sanitizer flags of a preset) is added to every compile and link:
+# abseil and protobuf must be built with the sanitizer flags of the code that links them, since
+# both change their data layouts and debug checks under ASan.
 set -euo pipefail
 src=$(cd "$1" && pwd)
 prefix=$2
@@ -26,8 +29,10 @@ mkdir -p "$prefix/logs"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 export CC=$gcc_root/bin/gcc CXX=$gcc_root/bin/g++
+extra=${EXTRA_FLAGS:-}
 common=(-G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG"
-  "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG" -DCMAKE_CXX_STANDARD=26 -DCMAKE_CXX_STANDARD_REQUIRED=ON
+  "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG" "-DCMAKE_CXX_FLAGS=$extra" "-DCMAKE_C_FLAGS=$extra"
+  "-DCMAKE_EXE_LINKER_FLAGS=$extra" "-DCMAKE_SHARED_LINKER_FLAGS=$extra" -DCMAKE_CXX_STANDARD=26 -DCMAKE_CXX_STANDARD_REQUIRED=ON
   -DCMAKE_CXX_EXTENSIONS=OFF -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
   "-DCMAKE_INSTALL_PREFIX=$prefix" "-DCMAKE_PREFIX_PATH=$prefix")
 tar -xzf "$src/abseil-cpp-20250512.1.tar.gz" -C "$work"

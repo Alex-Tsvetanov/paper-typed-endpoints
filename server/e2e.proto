@@ -1,0 +1,36 @@
+// The end-to-end benchmark's service (design note section 5): two echo rpcs, one per payload.
+syntax = "proto3";
+package bench.e2e;
+
+// The small payload: three fields, as ctpb's Person.
+message Person {
+  string name = 1;
+  int32 id = 2;
+  string email = 3;
+}
+
+message Item {
+  int64 id = 1;
+  string name = 2;
+  double price = 3;
+  repeated int32 tags = 4;
+  bool available = 5;
+}
+
+// The medium payload: about 1 KiB with the request in requests.hpp; nested and repeated fields of
+// most kinds.
+message Order {
+  string order_id = 1;
+  int64 created_unix_ms = 2;
+  Person customer = 3;
+  repeated Item items = 4;
+  repeated string labels = 5;
+  bytes note = 6;
+  sint32 priority = 7;
+  fixed64 checksum = 8;
+}
+
+service Echo {
+  rpc EchoPerson(Person) returns (Person);
+  rpc EchoOrder(Order) returns (Order);
+}

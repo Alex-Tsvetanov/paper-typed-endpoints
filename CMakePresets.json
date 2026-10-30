@@ -63,6 +63,24 @@
       }
     },
     {
+      "name": "linux-gcc1620-e2e",
+      "inherits": "linux-gcc1620-asan",
+      "displayName": "Pinned GCC 16.2.0 with ASan and UBSan, plus the end-to-end arms on a protobuf built with the same sanitizers (~/opt/protobuf-36.2-asan)",
+      "cacheVariables": {
+        "TEP_E2E": "ON",
+        "TEP_PROTOBUF_ROOT": "$env{HOME}/opt/protobuf-36.2-asan"
+      }
+    },
+    {
+      "name": "linux-gcc1620-e2e-release",
+      "inherits": "linux-gcc1620-release",
+      "displayName": "Pinned GCC 16.2.0, Release -O2, plus the end-to-end arms on the pinned protobuf (~/opt/protobuf-36.2)",
+      "cacheVariables": {
+        "TEP_E2E": "ON",
+        "TEP_PROTOBUF_ROOT": "$env{HOME}/opt/protobuf-36.2"
+      }
+    },
+    {
       "name": "linux-clang-fuzz",
       "inherits": "linux-clang-asan",
       "displayName": "clang 22 with libc++, ASan and UBSan, plus libFuzzer executables of the portable parsers",
