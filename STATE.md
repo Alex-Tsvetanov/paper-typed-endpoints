@@ -50,8 +50,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   against the grpc-go server; each side checks every field. Passes on Linux (Release, ASan), MinGW.
 - Decoding: up to 16 fields compare inline, larger messages through field-number tables. Repeated
   fields reserve for elements that arrive together, else grow geometrically (`test_growth`). Nested
-  sizes are recomputed while writing (unmeasured). R loses many from 2048 (A29): per-field decode
-  code against protoc's tables; two size-proxy fixes rejected (+4 to 5% .text).
+  sizes are computed again while writing (A35: `byte_size` of Item, 7.4% of R's medium cycles). R
+  loses many from 2048 (A29): per-field decode against protoc's tables; size-proxy fixes rejected.
 - Heap allocations per call (`test_allocs`, a count, identical requests): small 0 for every arm;
   medium S 0, P 32 (arena strings keep heap buffers), Q 0 (protobuf's cleared repeated fields
   keep their elements), R 93, then 62 (growth fix), then 27 (reuse: the copy into the cleared
@@ -98,7 +98,6 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `returns-nonnull-attribute` break constant evaluation (dropped from the preset); F3 clang 22
   with libstdc++ 16, no constexpr `std::string` (clang presets use libc++); F4 MinGW static
   libstdc++ multiple definition (dynamic libstdc++).
-- `ctpb-dev:latest` (bfa32b62a446): its protoc 3.21.12 only made the golden vectors.
 
 ## Status
 
@@ -116,8 +115,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: Laptop request 9 (S, R, P, Q); then the many-shape compile question (with the reuse
-      size cost); D5 records at the code freeze. Type changes (pmr) and P's configuration: Alex's.
+- [ ] Next: one size pass in the encoder (no API change); A36; then one question to Alex (R against
+      Q on medium, many-shape compile); a pilot with R and Q swapped; D5 records at the code freeze.
 
 ## Laptop requests
 
@@ -141,14 +140,17 @@ queue; design, scope and pushes still go to Alex.
    0.30 at 16; wide 0.86, 0.90, 0.77 (1024, 2048, 4096); many 1.00, 1.20, 1.56 (R loses from 2048;
    many 4096 at the raised limit). RSS: R lower for wide, 2.9 times P at many 4096. A27 to A28 cut
    R wide (4096: 246.90 to 126.62 s, code generation 229 to 106 s); many unchanged. Pilot.
-8. Done 2026-10-30 (A33 at 16fdbd5, `bench/requests/e2e-pilot-2.md`; archives
-   `gap55-a-q1-p5-e2e2-build-cb4bb3c2` sha256 9fe06b9d...d036, `gap55-a-q2-p5-e2e2-run-f472a6ce`
-   sha256 b083da61...080f). Pilot. All checks pass; spread at most 2.3%; S and P at c12 m128 within
-   0.8% of A31. R/P from c12: small 1.03 to 1.08; medium 1.01 (m1), tie (m8), 0.92 to 0.96 from m32
-   (R before P this time). R medium +14.7% over A31. perf (cycles:u, c12 m128): libc 22.5% of R's
-   cycles against 9.0% of P's on medium, 5.7 against 4.8% on small: the gap is R's heap allocations.
-9. Queued as A35 (after P4's A34) at 3537817: `bench/requests/e2e-pilot-3.md`, arms S, R, P, Q.
-10. Ready: `bench/requests/compile-rerun-4.md`, A29's compile rerun after reuse (R and P).
+8. Done 2026-10-30 (A33 at 16fdbd5; archives `gap55-a-q1-p5-e2e2-build-cb4bb3c2` sha256
+   9fe06b9d...d036, `gap55-a-q2-p5-e2e2-run-f472a6ce` sha256 b083da61...080f). Pilot. Checks pass.
+   R/P small 1.03 to 1.08, medium 0.92 to 1.01. perf (cycles:u, c12 m128, sums of listed symbols):
+   libc 22.5% of R's medium cycles against 9.0% of P's: R's heap allocations (62 per call then).
+9. Done 2026-10-30 (A35 at 3537817; archives `gap57-a-q1-p5-e2e3-build-b0ae2b00` sha256
+   b445446f...f82f, `gap57-a-q2-p5-e2e3-run-c201db87` sha256 a6f99e27...b3d1). Pilot. Checks pass;
+   allocs R 27, P 32, Q 0; spread at most 1.8%. Every window: R beats P (small 1.02 to 1.07, medium
+   1.01 to 1.11) and Q on small (1.005 to 1.03); Q beats R on medium (0.99, then 0.84 to 0.91 from c12
+   m8), but the later arm lost in both orders. Profile proxy, user cycles per medium request: R 9,178
+   (A33 10,291), P 9,535, Q 7,927; libc R 16.3%, Q 4.7%; R's own code ties Q's: the gap is allocation.
+10. Queued as A36 at 7997c9c: `bench/requests/compile-rerun-4.md` (R and P swap on even replicates).
 
 ## Lab requests
 
@@ -178,9 +180,7 @@ Answered by Alex on 2026-10-23 (AskUserQuestion, recommended option each time):
 From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coordinator;
 `Papers/lab/laptop/queue-plan-2026-10-draft.md`, section 10):
 
-6. Gap block approved: Lab request 4 (the MinGW-w64 GCC 16.2.0 zip copied to the laptop's
-   Windows and checked) and Laptop request 1 (the Arch gcc check and the `define_aggregate`
-   probe) run in laptop gaps. The coordinator's operator reads both from this file.
+6. Gap block approved: Lab request 4 (MinGW zip) and Laptop request 1 (Arch gcc, probe); both done.
 7. D1: no `pacman` upgrade or install on the laptop's Arch until P4's Arch blocks end. If Arch's
    gcc package differs from the image's, the fix is a side-by-side GCC build under `~/opt`,
    never a `pacman` change.
