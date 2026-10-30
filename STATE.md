@@ -38,7 +38,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   HTTP/2 on libnghttp2 1.70 (the image's), one pinned epoll worker per CPU (`test_server`, loopback).
   Presets `linux-gcc1620-e2e` (ASan, protobuf built with the same flags) and `-e2e-release`: 19/19.
   Not yet: Windows transport, grpc-go interop, load generator (Q1 to Q4 sent 2026-10-30, open).
-- Related-work survey: Sonnet gathering into `design/related-work-survey.md`; Opus checks next.
+- Related-work survey (858a9b6): `design/related-work-survey.md`, Sonnet gathered, Opus checked
+  every claim (33 corrected, 3 removed, 7 items added, 5 still unverified). The gap held.
 - Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
   libFuzzer executables (desktop: 10 minutes each, no failure).
@@ -116,7 +117,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
       push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
       Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
-- [ ] Next: answers to Q1 to Q4; interop with grpc-go; the Windows transport; the survey check.
+- [ ] Next: answers to Q1 to Q4; interop with grpc-go; the Windows transport.
 
 ## Laptop requests
 
