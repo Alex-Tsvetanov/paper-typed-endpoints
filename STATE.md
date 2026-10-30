@@ -134,23 +134,23 @@ queue; design, scope and pushes still go to Alex.
 7. Done 2026-10-30 (A29 at fa60375, archive `gap50-a-q1-p5-rerun3-4b1cde4a`, sha256 345bea80...bf09):
    51/51; P across A23 to A29 within 0.9%. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to
    4096); many 1.00, 1.20, 1.56. RSS: R 2.9 times P at many 4096. A27 to A28 cut R wide 4096 by half.
-8. Done 2026-10-30 (A33 at 16fdbd5; archives `gap55-a-q1-p5-e2e2-build-cb4bb3c2` sha256
-   9fe06b9d...d036, `gap55-a-q2-p5-e2e2-run-f472a6ce` sha256 b083da61...080f). Pilot. Checks pass.
-   R/P small 1.03 to 1.08, medium 0.92 to 1.01. perf (cycles:u, c12 m128, sums of listed symbols):
-   libc 22.5% of R's medium cycles against 9.0% of P's: R's heap allocations (62 per call then).
-9. Done 2026-10-30 (A35 at 3537817; archives `gap57-a-q1-p5-e2e3-build-b0ae2b00` sha256
-   b445446f...f82f, `gap57-a-q2-p5-e2e3-run-c201db87` sha256 a6f99e27...b3d1). Pilot. Checks pass;
-   allocs R 27, P 32, Q 0; spread at most 1.8%. Every window: R beats P (small 1.02 to 1.07, medium
-   1.01 to 1.11) and Q on small (1.005 to 1.03); Q beats R on medium (0.99, then 0.84 to 0.91 from c12
-   m8), but the later arm lost in both orders. Profile proxy, user cycles per medium request: R 9,178
-   (A33 10,291), P 9,535, Q 7,927; libc R 16.3%, Q 4.7%; R's own code ties Q's: the gap is allocation.
+8. Done 2026-10-30 (A33 at 16fdbd5; `gap55-a-q1-p5-e2e2-build-cb4bb3c2` 9fe06b9d...d036,
+   `gap55-a-q2-p5-e2e2-run-f472a6ce` b083da61...080f). Pilot. libc 22.5% of R's medium cycles (62 allocations).
+9. Done 2026-10-30 (A35 at 3537817; `gap57-a-q1-p5-e2e3-build-b0ae2b00` b445446f...f82f,
+   `gap57-a-q2-p5-e2e3-run-c201db87` a6f99e27...b3d1). Pilot. Q beat R on medium (0.84 to 0.91), R beat
+   P and Q on small; order confounded (pilot 4 settles it). Medium user cycles per request: R 9,178.
 10. Done 2026-10-30 (A38 step 1 at 30818a5, `compile-rerun-4.md`; archive `gap60-a-q1-p5-rerun4b-c9812e38`
     sha256 5f817497...acc6): 51/51, P within 0.8% of A29. R against A29, 16 to 4096: many +8, +24, +27,
     +24%; wide +6, +3.5, 0, -2.4%. R/P many 0.33, 1.24, 1.52, 1.92 (R loses from 1024); wide 0.30,
     0.89, 0.90, 0.74. R many 1024: instantiation 5.2 to 8.0 s, code generation 21.6 to 26.5 s,
     parsing unchanged, RSS 947 to 1,234 MiB. The reuse code (one slot per rpc, replace mode). Pilot.
-11. Queued as A38b at 30818a5: `bench/requests/e2e-pilot-4.md` (scripts reviewed at Papers 71059e0).
-12. Ready: `bench/requests/compile-handlers.md`, R many 1024 to 4096 at 30818a5 and the handler table.
+11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`; `gap60-a-q2-p5-e2e4-build-8df8d661` eac51854...43dd,
+    `gap60-a-q3-p5-e2e4-run-3d198c01` 4db2d9ce...3273). Pilot. 264 windows, checks pass, allocs unchanged.
+    An arm's second run within 1.6% of its first: no order effect. Every window: R beats P (small 1.02
+    to 1.08, medium 1.01 to 1.12) and Q on small from c12 m8 (1.02); Q beats R on medium from c12 m8
+    (0.94 to 0.85); ties at c1 and c12 m1. R medium +2 to 3% over A35 (back writer). Medium user cycles
+    per request (proxy): R 8,906, Q 7,755; own code R 5,598, Q 5,737; libc R 1,651, Q 321: allocation.
+12. Queued as A39 at 15aaa6a: `bench/requests/compile-handlers.md` (script reviewed at Papers b295ed8).
 
 ## Lab requests
 
