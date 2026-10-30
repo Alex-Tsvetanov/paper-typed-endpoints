@@ -92,7 +92,6 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - MinGW-w64 GCC 16.2.0 (Alex decides 1; winlibs r3, `lab/laptop/versions.md`) in
   `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH). P2996 and `#embed`;
   F1 reproduces, F2 does not; no ASan or UBSan; `thread_local` is emulated (review M1).
-- GCC 16.2.0 on every host since 2026-10-29 (Alex decides 10; Laptop request 4; dev image above).
 - Compiler findings (`design/compiler-findings.md`): F1 GCC 16 `string_view::find` from an offset
   on a literal in constexpr (avoided); F2 GCC UBSan `null`, `nonnull-attribute`,
   `returns-nonnull-attribute` break constant evaluation (dropped from the preset); F3 clang 22
@@ -114,7 +113,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: pilot 4 (A38b); Laptop request 12 (handler table); then one question to Alex (R against
+- [ ] Next: one question to Alex through the coordinator (R against
       Q on medium, many-shape compile with reuse); D5 records at the code freeze.
 
 ## Laptop requests
@@ -139,18 +138,19 @@ queue; design, scope and pushes still go to Alex.
 9. Done 2026-10-30 (A35 at 3537817; `gap57-a-q1-p5-e2e3-build-b0ae2b00` b445446f...f82f,
    `gap57-a-q2-p5-e2e3-run-c201db87` a6f99e27...b3d1). Pilot. Q beat R on medium (0.84 to 0.91), R beat
    P and Q on small; order confounded (pilot 4 settles it). Medium user cycles per request: R 9,178.
-10. Done 2026-10-30 (A38 step 1 at 30818a5, `compile-rerun-4.md`; archive `gap60-a-q1-p5-rerun4b-c9812e38`
-    sha256 5f817497...acc6): 51/51, P within 0.8% of A29. R against A29, 16 to 4096: many +8, +24, +27,
-    +24%; wide +6, +3.5, 0, -2.4%. R/P many 0.33, 1.24, 1.52, 1.92 (R loses from 1024); wide 0.30,
-    0.89, 0.90, 0.74. R many 1024: instantiation 5.2 to 8.0 s, code generation 21.6 to 26.5 s,
-    parsing unchanged, RSS 947 to 1,234 MiB. The reuse code (one slot per rpc, replace mode). Pilot.
+10. Done 2026-10-30 (A38 step 1 at 30818a5; `gap60-a-q1-p5-rerun4b-c9812e38` 5f817497...acc6): 51/51, P
+    within 0.8% of A29. R against A29, 16 to 4096: many +8, +24, +27, +24%, wide +6 to -2.4%. R/P many
+    0.33, 1.24, 1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
 11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`; `gap60-a-q2-p5-e2e4-build-8df8d661` eac51854...43dd,
     `gap60-a-q3-p5-e2e4-run-3d198c01` 4db2d9ce...3273). Pilot. 264 windows, checks pass, allocs unchanged.
     An arm's second run within 1.6% of its first: no order effect. Every window: R beats P (small 1.02
     to 1.08, medium 1.01 to 1.12) and Q on small from c12 m8 (1.02); Q beats R on medium from c12 m8
     (0.94 to 0.85); ties at c1 and c12 m1. R medium +2 to 3% over A35 (back writer). Medium user cycles
     per request (proxy): R 8,906, Q 7,755; own code R 5,598, Q 5,737; libc R 1,651, Q 321: allocation.
-12. Queued as A39 at 15aaa6a: `bench/requests/compile-handlers.md` (script reviewed at Papers b295ed8).
+12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`; `gap61-a-q1-p5-handlers-79de7859` 5ab64c2a...29f4).
+    Pilot. Every build separated: R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5 (4096
+    170.0 s, A29 181.2 s); constant evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many
+    1.18, 1.32, 1.46 (A29 1.00, 1.20, 1.56; P above 1024 from A38). What reuse still costs is code.
 
 ## Lab requests
 
