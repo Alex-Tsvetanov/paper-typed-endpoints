@@ -150,7 +150,7 @@ queue; design, scope and pushes still go to Alex.
     Pilot. Every build separated: R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5 (4096
     170.0 s, A29 181.2 s); constant evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many
     1.18, 1.32, 1.46 (A29 1.00, 1.20, 1.56; P above 1024 from A38). What reuse still costs is code.
-13. and 14. Ready (keep-storage types): `bench/requests/compile-rerun-5.md`, `e2e-pilot-5.md`.
+13. and 14. Queued as chain A40 at db1f31c, after P4's A37: `compile-rerun-5.md`, `e2e-pilot-5.md`.
 
 ## Lab requests
 
