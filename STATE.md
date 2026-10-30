@@ -45,9 +45,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   every claim (33 corrected, 3 removed, 7 items added, 5 still unverified). The gap held.
 - Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
-  libFuzzer executables (desktop: 10 minutes each, no failure).
-- Decoding dispatches through a field-number table and per-field functions (613d6fb; it was a
-  comparison with every field, quadratic). Unmeasured: nested sizes are recomputed while writing.
+  libFuzzer executables.
+- Decoding: up to 16 fields compare inline, larger messages dispatch through field-number tables
+  (613d6fb, 1e4b25d). Unmeasured: nested sizes are recomputed while writing.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
   is 33,554,432 operations per outermost evaluation; GCC counts every expression node. A variable
   template first used inside an evaluation shares its counter; forced earlier (a static_assert),
@@ -58,15 +58,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   operations), one static string for all names, a token cursor. Ladder under default limits:
   every cell except many 4096, which is the one secondary-curve cell (coordinator, 2026-10-30;
   `design/revision-log.md`). The micro-cuts stopped there: code generation dominates compiles.
-- Dev-image GCC 16.2.0 (Laptop request 4, desktop part, done 2026-10-29): the checked tarball,
-  the request's configure line, `-j4`, installed into `D:\Dev\toolchains\gcc-16.2.0-linux`, which
-  containers mount at `/home/dev/opt/gcc-16.2.0` (the image is unchanged). `g++` 16.2.0; the probe
-  prints the expected line; F1 as in MinGW 16.2.0; 14 of 14 pass at 20777ca (Release, rpath to
-  its `lib64`, so the tests load its libstdc++).
-- Protoc arm, dev image (2026-10-29): `bench/build_protobuf.sh` (pinned abseil and protobuf, GCC
-  16.2.0, C++26 `-O2`, static) into `D:\Dev\toolchains\protobuf-36.2-linux`; `bench/compile_curve.py`
-  builds one G_R or G_P cell and checks it (functional on the desktop with `--no-time`: R at 1024,
-  P at 4096, both shapes, pass). Presets `linux-gcc1620-{release,debug,asan}`: 14 of 14 each.
+- Desktop toolchains (functional builds): `D:\Dev\toolchains\{gcc-16.2.0-linux, protobuf-36.2-linux,
+  protobuf-36.2-linux-asan, nghttp2-1.70.0-linux}`, mounted under `/home/dev/opt`; and
+  `%USERPROFILE%\opt\{protobuf-36.2-mingw, nghttp2-1.70.0-mingw, protobuf-36.2-msvc-asan,
+  nghttp2-1.70.0-msvc-asan}`. `bench/compile_curve.py` builds and checks one R or P cell.
 
 ## Build and test (desktop, functional only; no timing)
 
@@ -75,9 +70,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `D:\Dev\toolchains\gcc-16.2.0-linux:/home/dev/opt/gcc-16.2.0:ro -w <repo> papers-dev:arch-2026-10-23`
   `bash tools/dev_linux_all.sh <presets>` (Git Bash: `MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results at c1dd0fb (pass or fail only): `linux-gcc1620-{release,asan}` 17 of 17 (5 unit, 7
-  compile-fail, 3 fuzz smoke, name guard and canary); `linux-clang-{asan,fuzz}`, `msvc-{debug,asan}`
-  8 of 8 portable, `reflection_layer` Skipped with the reason. MinGW: 14 of 14 on 2026-10-23.
+- Results at 91dbece (pass or fail only): `linux-gcc1620-{e2e,e2e-release}` and
+  `mingw-gcc1620-e2e-release` 19 of 19; `msvc-{debug,asan}` 8 of 8 portable, `reflection_layer`
+  Skipped with the reason; `msvc-e2e-asan` builds, `server` fails at start-up (M2).
 - Tests: golden wire vectors from `protoc` (`tests/golden/README.md`: protoc 3.21.12 from the
   local `ctpb-dev` image, a development oracle only); the encoder output equals them byte for
   byte for all 15 scalar types, enums, nested and repeated fields; `#embed` reads the schemas.
@@ -90,15 +85,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   (202502L). It refuses `^^std::int32_t`; reflect such types through a template.
 - clang 22.1.8 rejects `-freflection`. MSVC 19.51.36246 has no P2996 and no `#embed`.
 - CMake 4.3.2 (Windows) has no C++26 flag for MSVC: the MSVC build uses C++23.
-- MinGW-w64 GCC 16 on the desktop (Alex decides 1, probe passed 2026-10-23):
-  `winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3.zip` from github.com/brechtsanders/
-  winlibs_mingw release `16.2.0posix-23.1.3-14.0.0-ucrt-r3` (2026-10-18), 276,414,382 bytes,
-  sha256 3c69305081e4a647144339a936244fcf7d3d9e558319e1ad7be2cd2886d4b6a1, equal to the release
-  asset's published digest. Zip kept in `C:\Users\alext\opt\_dl\p5-winlibs-gcc16-r3`, unpacked
-  with `tar.exe` to `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH).
-  `g++` 16.2.0 (r3), GNU ld 2.47.20260726: `__cpp_impl_reflection` 202603L, `#embed`, constexpr
-  exceptions. F1 reproduces at `-O2` (so it is in the 16.2.0 release too); F2 does not reproduce
-  on this target. No ASan or UBSan on MinGW GCC.
+- MinGW-w64 GCC 16.2.0 (Alex decides 1): the winlibs r3 zip (276,414,382 bytes, sha256
+  3c693050...b6a1, `lab/laptop/versions.md`) unpacked to
+  `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH). P2996 and `#embed`;
+  F1 reproduces, F2 does not; no ASan or UBSan; `thread_local` is emulated (review M1).
 - GCC 16.2.0 on every host since 2026-10-29 (Alex decides 10; Laptop request 4; dev image above).
 - Compiler findings (details in `design/compiler-findings.md`):
   - F1: GCC 16.2.1 miscompiles `string_view::find` from an offset when a constexpr function
@@ -120,8 +110,13 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
       push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
       Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
-- [ ] Next: the Windows transport under MinGW; per-message compile cost in many (R loses there);
-      interop with grpc-go; D5 records with the instrumented protobuf (Laptop request).
+- [x] Fourth fresh review (Opus, 23dfab3..1e4b25d, 2026-10-31): no CRITICAL or HIGH; 4 MEDIUM,
+      7 LOW. Fixed and verified: M3 (multi-worker test), M4 (console handler), L5, L7 to L11
+      (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
+      Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
+      `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
+- [ ] Next: Alex's M1, M2 and the libev download; Laptop request 3 (e2e pilot, h2load on Arch);
+      interop with grpc-go; D5 records at the code freeze. A29 (Laptop request 7) queued.
 
 ## Laptop requests
 
@@ -143,6 +138,7 @@ queue; design, scope and pushes still go to Alex.
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. Done 2026-10-31 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
 6. Done 2026-10-31 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
+7. Queued as A29 (`bench/requests/compile-rerun-3.md` at fa60375): hybrid decoder, R and P alternating.
    Pilot, not a result. R compile medians A27 to A28 (3 replicates each): wide 1024 26.43 to 22.81 s,
    2048 75.62 to 53.58 s, 4096 246.90 to 126.62 s (code generation 229 to 106 s in the time
    report); many 1024 32.84 to 33.94 s, 2048 71.68 to 73.88 s (+3%, ranges apart); 16 fields equal.
