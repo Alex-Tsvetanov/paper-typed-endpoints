@@ -88,8 +88,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 ## Toolchain facts (desktop, 2026-10-23)
 
 - GCC 16.2.0: P2996 with `-freflection` (202603L), `#embed`; refuses `^^std::int32_t` (use a template).
-- clang 22.1.8 rejects `-freflection`. MSVC 19.51.36246 has no P2996 and no `#embed`.
-- CMake 4.3.2 (Windows) has no C++26 flag for MSVC: the MSVC build uses C++23.
+- clang 22.1.8 rejects `-freflection`. MSVC 19.51.36246: no P2996, no `#embed`, C++23 (CMake 4.3.2).
 - MinGW-w64 GCC 16.2.0 (Alex decides 1; winlibs r3, `lab/laptop/versions.md`) in
   `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH). P2996 and `#embed`;
   F1 reproduces, F2 does not; no ASan or UBSan; `thread_local` is emulated (review M1).
