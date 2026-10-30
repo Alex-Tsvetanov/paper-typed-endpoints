@@ -11,6 +11,9 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #endif
 
@@ -105,7 +108,12 @@ int main(int argc, char** argv) {
         }
     }
     if (arm == "R") {
+#if TEP_E2E_ARM_R
         options.make_arm = e2e::make_reflection_arm;
+#else
+        std::fprintf(stderr, "tep_server: arm R is not built (this compiler has no C++26 reflection)\n");
+        return 2;
+#endif
     } else if (arm == "P") {
         options.make_arm = e2e::make_protoc_arm;
     } else {
@@ -117,6 +125,18 @@ int main(int argc, char** argv) {
     try {
         e2e::server s(options);
         running.store(&s);
+        // Clears the pointer before the server is destroyed, on every way out of this block.
+        struct clear_running {
+            clear_running() = default;
+            clear_running(const clear_running&) = delete;
+            clear_running& operator=(const clear_running&) = delete;
+            ~clear_running() {
+#ifdef _WIN32
+                const std::lock_guard lock(stop_mutex);
+#endif
+                running.store(nullptr);
+            }
+        } const clear;
 #ifdef _WIN32
         if (::SetConsoleCtrlHandler(on_console_event, TRUE) == 0)
             std::fprintf(stderr, "tep_server: SetConsoleCtrlHandler failed (%lu)\n", ::GetLastError());
@@ -128,10 +148,6 @@ int main(int argc, char** argv) {
                     static_cast<unsigned>(s.port()), options.cpus.empty() ? std::size_t{1} : options.cpus.size());
         std::fflush(stdout);
         s.run();
-#ifdef _WIN32
-        const std::lock_guard lock(stop_mutex);
-#endif
-        running.store(nullptr);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "tep_server: %s\n", e.what());
         return 1;

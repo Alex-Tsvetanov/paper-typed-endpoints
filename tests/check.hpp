@@ -5,6 +5,7 @@
 // check that has side effects.
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdio>
 #include <fstream>
@@ -15,7 +16,7 @@
 
 namespace tep_test {
 
-inline int failures = 0;
+inline std::atomic<int> failures{0};  // checks may run on several threads (test_server's clients)
 
 inline void check(bool ok, const char* expr, std::source_location loc = std::source_location::current()) {
     if (!ok) {
@@ -29,7 +30,7 @@ inline int finish(const char* name) {
         std::printf("%s: all checks passed\n", name);
         return 0;
     }
-    std::fprintf(stderr, "%s: %d checks failed\n", name, failures);
+    std::fprintf(stderr, "%s: %d checks failed\n", name, failures.load());
     return 1;
 }
 

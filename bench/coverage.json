@@ -27,7 +27,7 @@
       "msvc_asan": "planned (MSVC 19.51, preset msvc-asan); records made on the laptop"
     },
     "server": {
-      "msvc_asan": "planned: the transport (net_windows.cpp, h2_server.cpp, main.cpp) and arm P built with MSVC ASan, which needs MSVC builds of abseil, protobuf and libnghttp2 and an end-to-end build without arm R (coordinator, 2026-10-30)"
+      "msvc_asan": "blocked, decision open (2026-10-31): preset msvc-e2e-asan builds the transport and arm P on MSVC ASan builds of abseil, protobuf and libnghttp2 (bench/build_deps_msvc.sh), but every program that links protoc's generated code stops before main under MSVC ASan: registering e2e.proto's descriptor parses through protobuf's parse tables while MSVC still initializes them dynamically, and calls a null function (TcParser::TagDispatch; protobuf's port_def.inc says MSVC, unlike clang-cl, cannot guarantee their constant initialization). Debug and RelWithDebInfo alike. The portable layers' msvc-asan record is unaffected"
     },
     "reflection": "gap: on Windows only MinGW-w64 GCC 16 builds the reflection layer and arm R, and it has no ASan or UBSan; MSVC and clang-cl have no P2996. The Linux GCC ASan+UBSan and TSan records cover the same first-party inputs (CLAUDE.md D5; p5-typed-endpoints/AGENTS.md line 24)"
   },

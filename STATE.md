@@ -81,7 +81,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Tests: golden wire vectors from `protoc` (`tests/golden/README.md`: protoc 3.21.12 from the
   local `ctpb-dev` image, a development oracle only); the encoder output equals them byte for
   byte for all 15 scalar types, enums, nested and repeated fields; `#embed` reads the schemas.
-- TSan: not run (no threads yet). It needs `--security-opt seccomp=unconfined` in the container.
+- TSan: not run yet; the server has threads (`test_server`, two workers). Needs a TSan preset, a TSan
+  protobuf, and `--security-opt seccomp=unconfined` in the container.
 
 ## Toolchain facts (desktop, 2026-10-23)
 

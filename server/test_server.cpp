@@ -9,6 +9,9 @@
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
@@ -239,9 +242,11 @@ void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)(), std::vector
 }  // namespace
 
 int main() {
+#if TEP_E2E_ARM_R
     exercise("arm R", e2e::make_reflection_arm, {}, 1);
-    exercise("arm P", e2e::make_protoc_arm, {}, 1);
     exercise("arm R, 2 workers", e2e::make_reflection_arm, {0, 1}, 4);
+#endif
+    exercise("arm P", e2e::make_protoc_arm, {}, 1);
     exercise("arm P, 2 workers", e2e::make_protoc_arm, {0, 1}, 4);
     return tep_test::finish("test_server");
 }

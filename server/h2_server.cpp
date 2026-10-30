@@ -351,7 +351,8 @@ void worker::close_marked() {
 }
 
 void worker::adopt_handed(std::vector<net::socket_t>& adopted) {
-    if (!pending_.exchange(false, std::memory_order_acquire)) return;
+    // A plain load first: the exchange is a locked read-modify-write, needed only when a flag is set.
+    if (!pending_.load(std::memory_order_relaxed) || !pending_.exchange(false, std::memory_order_acquire)) return;
     {
         const std::lock_guard lock(mutex_);
         adopted.swap(handed_);

@@ -2,8 +2,22 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 set(TEP_GOLDEN_DIR ${CMAKE_CURRENT_SOURCE_DIR}/golden)
 
+# MinGW: the compiler's runtime DLLs are copied next to each executable, which the DLL search order
+# prefers to PATH (where another MinGW runtime, such as Git for Windows', may come first).
+function(tep_mingw_runtime target)
+  get_target_property(type ${target} TYPE)
+  if(MINGW AND type STREQUAL "EXECUTABLE")
+    get_filename_component(bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+    foreach(dll libstdc++-6.dll libgcc_s_seh-1.dll libwinpthread-1.dll)
+      add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${bin}/${dll}" "$<TARGET_FILE_DIR:${target}>")
+    endforeach()
+  endif()
+endfunction()
+
 function(tep_test_target target)
   target_compile_definitions(${target} PRIVATE TEP_GOLDEN_DIR="${TEP_GOLDEN_DIR}")
+  tep_mingw_runtime(${target})
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /permissive- /Zc:preprocessor /Zc:__cplusplus /utf-8 /EHsc
                                              /constexpr:steps10000000)
