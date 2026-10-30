@@ -129,16 +129,13 @@ queue; design, scope and pushes still go to Alex.
    4b01a015...cc82; at c525595). Medians: R 2.3/2.5 s at 16 (wide/many), 28.3/34.8 s at 1024;
    P 7.7/7.8 s, 26.8/33.2 s, 167/116 s at 4096. Replicates within 0.3%. At 1024, R spends 62 to
    78% in code generation, 11/21% in constant evaluation. Protobuf build on the laptop 91 s.
-3. Not ready (needs the transport and the arms). End-to-end pilot: the length of a gRPC window and
-   the saturating load, per arm. Arch first. No measured basis for gRPC windows; the lab's
-   closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
-   load test against each server variant, to learn how long one window takes and which load
-   saturates the server.
+3. Ready 2026-10-31: `bench/requests/e2e-pilot.md` (arms S, R, P; h2load on Arch; window
+   steadiness and the saturating load). h2load and the server checked functionally on the desktop.
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. Done 2026-10-31 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
 6. Done 2026-10-31 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
-7. Queued as A29 (`bench/requests/compile-rerun-3.md` at fa60375): hybrid decoder, R and P alternating.
+7. Running as A29 (`bench/requests/compile-rerun-3.md` at fa60375): hybrid decoder, R and P alternating.
    Pilot, not a result. R compile medians A27 to A28 (3 replicates each): wide 1024 26.43 to 22.81 s,
    2048 75.62 to 53.58 s, 4096 246.90 to 126.62 s (code generation 229 to 106 s in the time
    report); many 1024 32.84 to 33.94 s, 2048 71.68 to 73.88 s (+3%, ranges apart); 16 fields equal.

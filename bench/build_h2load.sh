@@ -38,6 +38,14 @@ tar -xzf "$ev_src/libev-4.33.tar.gz" -C "$work"
   make install > "$prefix/logs/libev-install.log" 2>&1)
 
 tar -xJf "$ng_src/nghttp2-1.70.0.tar.xz" -C "$work"
+# nghttp2 links every optional library it finds into its applications; none is looked for, so
+# h2load depends on OpenSSL, zlib and libev only, whatever else the system has.
+no_optional=()
+for pkg in Libcares Libbrotlienc Libbrotlidec Libngtcp2 Libnghttp3 Libbpf Systemd Jansson Libevent LibXml2 \
+  Jemalloc WolfSSL Libngtcp2_crypto_quictls Libngtcp2_crypto_libressl Libngtcp2_crypto_wolfssl \
+  Libngtcp2_crypto_ossl; do
+  no_optional+=("-DCMAKE_DISABLE_FIND_PACKAGE_$pkg=ON")
+done
 cmake -S "$work/nghttp2-1.70.0" -B "$work/b" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   "-DCMAKE_C_COMPILER=$gcc_root/bin/gcc" "-DCMAKE_CXX_COMPILER=$gcc_root/bin/g++" \
   "-DCMAKE_C_FLAGS_RELEASE=-O2 -DNDEBUG" "-DCMAKE_CXX_FLAGS_RELEASE=-O2 -DNDEBUG" \
@@ -45,7 +53,7 @@ cmake -S "$work/nghttp2-1.70.0" -B "$work/b" -G Ninja -DCMAKE_BUILD_TYPE=Release
   -DENABLE_APP=ON -DENABLE_HPACK_TOOLS=OFF -DENABLE_EXAMPLES=OFF -DENABLE_HTTP3=OFF -DENABLE_DOC=OFF \
   -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DBUILD_TESTING=OFF -DWITH_LIBXML2=OFF -DWITH_JEMALLOC=OFF \
   "-DLIBEV_INCLUDE_DIR=$prefix/libev/include" "-DLIBEV_LIBRARY=$prefix/libev/lib/libev.a" \
-  "-DCMAKE_INSTALL_PREFIX=$prefix" > "$prefix/logs/nghttp2-apps-configure.log" 2>&1
+  "${no_optional[@]}" "-DCMAKE_INSTALL_PREFIX=$prefix" > "$prefix/logs/nghttp2-apps-configure.log" 2>&1
 cmake --build "$work/b" -j "$jobs" --target h2load > "$prefix/logs/nghttp2-apps-build.log" 2>&1
 install -D -m 755 "$work/b/src/h2load" "$prefix/bin/h2load"
 "$prefix/bin/h2load" --version
