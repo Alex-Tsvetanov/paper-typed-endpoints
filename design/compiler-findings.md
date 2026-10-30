@@ -83,5 +83,6 @@ definition of `std::range_error::~range_error()`". On Linux (ELF) the same pair 
 `-static-libstdc++`.
 
 What this repository does: the `mingw-gcc1620-e2e-release` preset links libstdc++ dynamically (the
-winlibs `bin` folder on PATH supplies the DLLs), for both arms alike. No report is drafted yet; a
-search of GCC Bugzilla for a duplicate is Alex's (Bugzilla refuses automated searches).
+winlibs `bin` folder on PATH supplies the DLLs), for both arms alike. No report is drafted yet.
+Searching GCC Bugzilla for a duplicate and filing a report are Alex's calls (Bugzilla refuses
+automated searches); nothing goes upstream without him.

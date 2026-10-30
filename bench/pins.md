@@ -57,9 +57,21 @@ links only the library.
 The release also publishes a PGP signature (`nghttp2-1.70.0.tar.xz.asc`); checking it needs the
 maintainer's key, which is not pinned here.
 
+h2load (the Linux load generator, Alex's decision Q1 of 2026-10-30) is built from this tarball with
+`--enable-app`, which needs OpenSSL, zlib and libev. Arch's base system has OpenSSL and zlib; libev
+is built from source into `~/opt`, so the laptop's packages stay as they are (no pacman change):
+
+| File | Bytes | sha256 | URL |
+|---|---|---|---|
+| libev-4.33.tar.gz | 569,527 | 507eb7b8d1015fbec5b935f34ebed15bf346bed04a11ab82b8eee848c4205aea | https://dist.schmorp.de/libev/Attic/libev-4.33.tar.gz |
+
+libev 4.33 is the newest release. Digest sources, checked 2026-10-30: Homebrew's formula API
+(`formulae.brew.sh/api/formula/libev.json`, field `checksum`) and FreeBSD ports
+(`devel/libev/distinfo`, which also gives the size). The upstream site publishes no digest.
+
 ## Not yet pinned
 
 - gRPC C++ for the reference arm G (Alex's decision D-G: built after arms R and P).
-- libev, c-ares and OpenSSL for the h2load tools build on Arch: the system packages; pin them when
-  the h2load build is scripted. Windows runs use ghz instead (Alex, 2026-10-30,
+- The system OpenSSL and zlib that h2load links on Arch: their versions are recorded by the job
+  (`pacman -Q openssl zlib`), not pinned. Windows runs use ghz instead (Alex, 2026-10-30,
   `design/revision-log.md`), since a MinGW build of nghttp2 is the library only.
