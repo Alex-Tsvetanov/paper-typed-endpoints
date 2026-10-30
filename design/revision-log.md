@@ -113,7 +113,7 @@ Decided by this session under D2 (no new question; decision notice to the coordi
   medium). `encode` and `encode_framed` now write back to front (`detail::encode_back`), so a
   length is known when its prefix is written, and every message is sized once, as protobuf's
   cached sizes do. The forward writer (`encode_to`) stays as the reference; the tests and
-  `fuzz_decode` require the same bytes and a write that ends exactly at the buffer's start.
+  `fuzz_decode` require the same bytes and a write that begins exactly at the buffer's start.
 - A35 ran each arm once per payload; R and Q swapped places only between payloads, and the later
   arm lost R against Q in both. The next pilot runs R and Q twice per payload in mirrored order
   (`bench/requests/e2e-pilot-4.md`).

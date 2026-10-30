@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Protobuf wire primitives: tags, varints, zigzag, fixed-width values, a bounds-checked reader,
-// an unchecked writer for buffers sized in advance, and a strict UTF-8 check. Plain C++23.
+// unchecked forward and backward writers for buffers sized in advance, and a strict UTF-8 check.
+// Plain C++23.
 #pragma once
 
 #include <bit>

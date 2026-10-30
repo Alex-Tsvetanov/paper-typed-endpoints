@@ -460,8 +460,6 @@ void test_reuse_is_bounded() {
     TEP_CHECK(held_capacity(h) <= 4096);
 }
 
-}  // namespace
-
 // encode and encode_framed write back to front; encode_to, front to back, is the reference. The
 // backward writer must begin exactly at the buffer's start and match the reference byte for byte.
 template <class M>
@@ -477,6 +475,10 @@ void check_backward(const M& m) {
     TEP_CHECK(tep::encode_framed(m, framed) && framed.size() == tep::grpc::prefix_size + n);
     TEP_CHECK(std::equal(forward.begin(), forward.end(),
                          framed.begin() + static_cast<std::ptrdiff_t>(tep::grpc::prefix_size)));
+    // The prefix: not compressed, then the length in four bytes, most significant first.
+    TEP_CHECK(framed[0] == std::byte{0});
+    for (std::size_t i = 0; i < 4; ++i)
+        TEP_CHECK(framed[1 + i] == static_cast<std::byte>((n >> (8 * (3 - i))) & 0xFFu));
 }
 
 void test_backward_writer() {
@@ -497,7 +499,16 @@ void test_backward_writer() {
     h.many[0].twigs.resize(40, Twig{.n = -1, .s = std::string(10, 'q')});
     TEP_CHECK(tep::byte_size(*h.one) > 300 && tep::byte_size(h.many[0]) > 127);
     check_backward(h);
+    // A length of three bytes (over 16383), and a present but empty nested message (0a 00).
+    h.name = std::string(20'000, 'n');
+    check_backward(h);
+    Holder present{};
+    present.one = Leaf{};
+    check_backward(present);
+    TEP_CHECK(tep::encode(present) == (std::vector<std::byte>{std::byte{0x0a}, std::byte{0x00}}));
 }
+
+}  // namespace
 
 int main() {
     test_matches_protoc();
