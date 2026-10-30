@@ -107,16 +107,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 - [x] Repository, STATE.md, design note draft, compiler findings.
 - [x] Skeleton building; tests pass on Linux, MSVC (portable layers) and MinGW GCC 16 (all).
-- [x] Code review by a fresh agent (Opus, cpp-reviewer, 2026-10-23): 1 CRITICAL, 1 HIGH, 4
-      MEDIUM, 5 LOW groups. All CRITICAL, HIGH and MEDIUM fixed, and most LOW (commit 8764052).
-      Left open: value-type checks of option values (`[deprecated = "yes"]` is accepted), `1abc`
-      lexed as one floating token, no per-request decode allocation cap beyond the 4 MiB frame
-      limit (memory amplification from repeated empty messages is bounded by sizeof(M) per two
-      input bytes, as in libprotobuf).
-- [x] Second fresh review (Opus) of the optimization diff 8764052..de304a9: no CRITICAL or HIGH;
-      the MEDIUM (a backslash before a newline in a string lost the line count; now refused, as
-      protoc does) and two LOW (hash-flooding fallback to a sort, capped token reservation) are
-      fixed in the next commit.
+- [x] Fresh reviews 1 (2026-10-23, 8764052) and 2 (8764052..de304a9): all CRITICAL, HIGH, MEDIUM
+      fixed. Open LOW: option value types (`[deprecated = "yes"]` accepted), `1abc` one floating
+      token, no decode allocation cap beyond the 4 MiB frame (bounded by sizeof(M) per 2 bytes).
 - [x] Third fresh review (Opus, c525595..c1dd0fb, 2026-10-30): 2 HIGH (rpc space reserved per
       service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
       push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
