@@ -71,3 +71,17 @@ This is a declared sanitizer gap for the reflection layer.
 `std::string(std::string_view)` inside a constant evaluation fails with
 "undefined function '_M_construct<const char *>' cannot be used in a constant expression".
 With `-stdlib=libc++` the same code compiles. The clang presets use libc++.
+
+## F4. MinGW-w64 GCC 16.2.0, C++26, static libstdc++: exception destructors defined twice
+
+Under C++26 (`__cpp_lib_constexpr_exceptions` 202502L) libstdc++'s `<stdexcept>` declares
+`constexpr virtual ~range_error() noexcept { }`, so every translation unit that needs the destructor
+emits it inline, in a COMDAT section. `libstdc++.a(stdexcept.o)`, built for an older standard,
+defines the same destructor out of line. Linking the end-to-end executables with `-static` against
+abseil 20250512.1 built as C++26 (`libabsl_throw_delegate.a`) fails on PE/COFF with "multiple
+definition of `std::range_error::~range_error()`". On Linux (ELF) the same pair links, with
+`-static-libstdc++`.
+
+What this repository does: the `mingw-gcc1620-e2e-release` preset links libstdc++ dynamically (the
+winlibs `bin` folder on PATH supplies the DLLs), for both arms alike. No report is drafted yet; a
+search of GCC Bugzilla for a duplicate is Alex's (Bugzilla refuses automated searches).

@@ -2,8 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 // Arm P: the echo service on protoc-generated classes and libprotobuf, with a route table of the
-// same shape as arm R's. Per-request messages without an arena for now; the arena choice is open
-// (design question Q2 to Alex, 2026-10-30).
+// same shape as arm R's. Its best configuration (Alex, 2026-10-30, design/revision-log.md): one
+// Arena per request on a reused initial block, with the request and the response created on it.
+// The Arena constructor that takes only an initial block is the one arena.h calls more efficient
+// than passing ArenaOptions. Each worker has its own arm, so the block is never shared.
+#include <google/protobuf/arena.h>
+
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -26,21 +31,29 @@ public:
     }
 
 private:
+    // Holds both messages of the medium request with room to spare; a larger request makes the
+    // arena take further blocks from malloc, which it frees with itself.
+    static constexpr std::size_t initial_block_size = 64 * 1024;
+
     // The handler: the response is a copy of the request, in both arms.
     template <class M>
-    static status echo(std::span<const std::byte> request, std::vector<std::byte>& response) {
+    status echo(std::span<const std::byte> request, std::vector<std::byte>& response) {
         if (request.size() > static_cast<std::size_t>(INT32_MAX)) return status::resource_exhausted;
-        M q;
-        if (!q.ParseFromArray(request.data(), static_cast<int>(request.size()))) return status::internal;
-        const M r = q;
-        const std::size_t n = r.ByteSizeLong();
+        google::protobuf::Arena arena(block_.data(), block_.size());
+        M* const q = google::protobuf::Arena::Create<M>(&arena);
+        if (!q->ParseFromArray(request.data(), static_cast<int>(request.size()))) return status::internal;
+        M* const r = google::protobuf::Arena::Create<M>(&arena);
+        *r = *q;
+        const std::size_t n = r->ByteSizeLong();
         if (n > 0xFFFF'FFFFu) return status::resource_exhausted;
         response.resize(tep::grpc::prefix_size + n);
         tep::grpc::write_prefix(response.data(), false, static_cast<std::uint32_t>(n));
         auto* const begin = reinterpret_cast<std::uint8_t*>(response.data() + tep::grpc::prefix_size);
-        if (r.SerializeWithCachedSizesToArray(begin) != begin + n) return status::internal;
+        if (r->SerializeWithCachedSizesToArray(begin) != begin + n) return status::internal;
         return status::ok;
     }
+
+    alignas(std::max_align_t) std::array<char, initial_block_size> block_{};
 };
 
 }  // namespace

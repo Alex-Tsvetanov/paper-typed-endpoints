@@ -4,13 +4,21 @@
 // The transport, end to end over loopback: a blocking nghttp2 client sends gRPC calls to the server
 // running in-process on a free port, for each arm, and checks every response body and its
 // grpc-status trailer. Concurrent streams on one connection, an unknown method, and a compressed
-// message are covered.
+// message are covered. On Windows the server's listener starts Winsock before the client connects.
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
 #include <arpa/inet.h>
 #include <netinet/in.h>
-#include <nghttp2/nghttp2.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
+#endif
+#include <nghttp2/nghttp2.h>
 
 #include <algorithm>
 #include <cstddef>
@@ -30,6 +38,32 @@
 #include "requests.hpp"
 
 namespace {
+
+// The blocking client's few socket calls, on both systems.
+#ifdef _WIN32
+using native_socket = SOCKET;
+void close_native(native_socket s) { ::closesocket(s); }
+void set_receive_timeout(native_socket s, int seconds) {
+    const DWORD ms = static_cast<DWORD>(seconds) * 1000;
+    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&ms), sizeof ms);
+}
+long send_some(native_socket s, const std::uint8_t* data, std::size_t n) {
+    return ::send(s, reinterpret_cast<const char*>(data), static_cast<int>(std::min<std::size_t>(n, 1 << 30)), 0);
+}
+long recv_some(native_socket s, std::uint8_t* data, std::size_t n) {
+    return ::recv(s, reinterpret_cast<char*>(data), static_cast<int>(std::min<std::size_t>(n, 1 << 30)), 0);
+}
+#else
+using native_socket = int;
+void close_native(native_socket s) { ::close(s); }
+void set_receive_timeout(native_socket s, int seconds) {
+    timeval limit{};
+    limit.tv_sec = seconds;
+    ::setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof limit);
+}
+long send_some(native_socket s, const std::uint8_t* data, std::size_t n) { return ::send(s, data, n, MSG_NOSIGNAL); }
+long recv_some(native_socket s, std::uint8_t* data, std::size_t n) { return ::recv(s, data, n, 0); }
+#endif
 
 std::vector<std::byte> framed(const std::string& message, bool compressed = false) {
     std::vector<std::byte> out(tep::grpc::prefix_size + message.size());
@@ -60,9 +94,7 @@ class client {
 public:
     explicit client(std::uint16_t port) {
         fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
-        timeval limit{};
-        limit.tv_sec = 10;
-        ::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &limit, sizeof limit);
+        set_receive_timeout(fd_, 10);
         sockaddr_in a{};
         a.sin_family = AF_INET;
         a.sin_port = htons(port);
@@ -81,7 +113,7 @@ public:
     client& operator=(const client&) = delete;
     ~client() {
         nghttp2_session_del(session_);
-        ::close(fd_);
+        close_native(fd_);
     }
 
     // Runs every call to completion, or until the server goes quiet for the timeout.
@@ -108,13 +140,13 @@ public:
                 if (n <= 0) break;
                 std::size_t done = 0;
                 while (done < static_cast<std::size_t>(n)) {
-                    const ssize_t w = ::send(fd_, out + done, static_cast<std::size_t>(n) - done, MSG_NOSIGNAL);
+                    const long w = send_some(fd_, out + done, static_cast<std::size_t>(n) - done);
                     if (w <= 0) return;
                     done += static_cast<std::size_t>(w);
                 }
             }
             if (std::all_of(calls.begin(), calls.end(), [](const call& c) { return c.closed; })) return;
-            const ssize_t r = ::recv(fd_, buffer.data(), buffer.size(), 0);
+            const long r = recv_some(fd_, buffer.data(), buffer.size());
             if (r <= 0) return;
             if (nghttp2_session_mem_recv2(session_, buffer.data(), static_cast<std::size_t>(r)) < 0) return;
         }
@@ -152,7 +184,7 @@ private:
         return 0;
     }
 
-    int fd_ = -1;
+    native_socket fd_{};
     nghttp2_session* session_ = nullptr;
 };
 

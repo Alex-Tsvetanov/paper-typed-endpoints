@@ -5,7 +5,16 @@
 //
 // Usage: tep_server --arm R|P [--port N] [--cpus C[,C...]] [--max-streams N]
 //   --cpus   one worker thread per CPU, pinned to it (the lab's server cores); default one unpinned
-// It prints one line when it listens, and exits cleanly on SIGTERM or SIGINT.
+// It prints one line when it listens, and exits cleanly on SIGTERM or SIGINT (Linux), or on a
+// console Ctrl+C, Ctrl+Break or close event (Windows, which raises no SIGTERM).
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+
+#include <atomic>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -18,11 +27,19 @@
 
 namespace {
 
-e2e::server* running = nullptr;
+std::atomic<e2e::server*> running{nullptr};
 
 extern "C" void on_signal(int) {
-    if (running != nullptr) running->stop();
+    if (e2e::server* s = running.load(); s != nullptr) s->stop();
 }
+
+#ifdef _WIN32
+// Runs on a thread the system creates for the event; stop() only sets a flag and wakes the workers.
+BOOL WINAPI on_console_event(DWORD) {
+    on_signal(0);
+    return TRUE;
+}
+#endif
 
 int usage() {
     std::fprintf(stderr, "usage: tep_server --arm R|P [--port N] [--cpus C[,C...]] [--max-streams N]\n");
@@ -76,14 +93,19 @@ int main(int argc, char** argv) {
     }
     try {
         e2e::server s(options);
-        running = &s;
+        running.store(&s);
+#ifdef _WIN32
+        if (::SetConsoleCtrlHandler(on_console_event, TRUE) == 0)
+            std::fprintf(stderr, "tep_server: SetConsoleCtrlHandler failed (%lu)\n", ::GetLastError());
+#else
         std::signal(SIGTERM, on_signal);
         std::signal(SIGINT, on_signal);
+#endif
         std::printf("tep_server: arm %s, port %u, %zu worker(s)\n", std::string(arm).c_str(),
                     static_cast<unsigned>(s.port()), options.cpus.empty() ? std::size_t{1} : options.cpus.size());
         std::fflush(stdout);
         s.run();
-        running = nullptr;
+        running.store(nullptr);
     } catch (const std::exception& e) {
         std::fprintf(stderr, "tep_server: %s\n", e.what());
         return 1;

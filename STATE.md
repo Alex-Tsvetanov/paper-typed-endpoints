@@ -35,9 +35,12 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   import, editions, streaming, recursive messages, `[default]`, `message_set_wire_format`.
 - End-to-end (087812c, `server/`, `TEP_E2E`): arms R and P of an echo service (Person 34 bytes,
   Order 953 bytes) behind one interface, byte-identical (`test_arms`); `tep_server --arm R|P`,
-  HTTP/2 on libnghttp2 1.70 (the image's), one pinned epoll worker per CPU (`test_server`, loopback).
-  Presets `linux-gcc1620-e2e` (ASan, protobuf built with the same flags) and `-e2e-release`: 19/19.
-  Not yet: Windows transport, grpc-go interop, load generator (Q1 to Q4 sent 2026-10-30, open).
+  HTTP/2 on the pinned libnghttp2 1.70.0 (`bench/build_nghttp2.sh`), one pinned worker per CPU,
+  epoll on Linux, WSAPoll on Windows (`test_server`, loopback). P: one Arena per request on a reused
+  64 KiB block. Q1 to Q4 answered by Alex 2026-10-30 (`design/revision-log.md`): h2load on Linux,
+  ghz on Windows; P's arena; MinGW first, else a declared gap. 19/19 in `linux-gcc1620-e2e` (ASan,
+  protobuf with the same flags), `-e2e-release`, and `mingw-gcc1620-e2e-release` (MinGW abseil,
+  protobuf, nghttp2 unpatched, `bench/build_protobuf_mingw.sh`; libstdc++ dynamic, finding F4).
 - Related-work survey (858a9b6): `design/related-work-survey.md`, Sonnet gathered, Opus checked
   every claim (33 corrected, 3 removed, 7 items added, 5 still unverified). The gap held.
 - Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
@@ -103,8 +106,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
     constant evaluation of the reflection layer; the GCC sanitizer preset drops them.
   - F3: clang 22 with libstdc++ 16 cannot build `std::string` in constant evaluation; clang
     presets use libc++.
-- Local image `ctpb-dev:latest` (bfa32b62a446): Bloomberg clang-p2996 at 2ea0a79fe and Ubuntu's
-  protoc 3.21.12. P5 builds nothing in it; its protoc only made the development golden vectors.
+- `ctpb-dev:latest` (bfa32b62a446): its protoc 3.21.12 only made the golden vectors.
 
 ## Status
 
@@ -117,19 +119,16 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
       push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
       Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
-- [ ] Next: answers to Q1 to Q4; interop with grpc-go; the Windows transport.
+- [ ] Next: the Windows transport under MinGW; per-message compile cost in many (R loses there);
+      interop with grpc-go; D5 records with the instrumented protobuf (Laptop request).
 
 ## Laptop requests
 
 Since 2026-10-26 (Alex, AGENTS.md bc1a76d) a ready request goes straight to the coordinator's
 queue; design, scope and pushes still go to Alex.
 
-1. Done 2026-10-24 on the laptop's Arch: jobs `a1-p5-f1` and `a1-p5-define-aggregate`, both exit
-   0 (archive `C:/Users/alext/lab/laptop-archive/gap1-a-q4-visit-a1-c0eb9960/`, sha256 files
-   match). Arch's gcc is `16.2.1+r23+gd564253eb6c8-1`, the image's exact package, so the operation
-   counts, the ladder ceilings and F1 transfer to the laptop. F1 reproduced: correct at `-O0`,
-   "f literal=3" and "g literal=3" at `-O1` and `-O2`. The probe
-   (`probes/define_aggregate_probe.cpp` at c9d22bf) printed the expected line.
+1. Done 2026-10-24 on Arch (archive `gap1-a-q4-visit-a1-c0eb9960`, sha256 files match): Arch's
+   gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
 2. Done 2026-10-29 (A23, pilot, not a result; archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256
    4b01a015...cc82; at c525595). Medians: R 2.3/2.5 s at 16 (wide/many), 28.3/34.8 s at 1024;
    P 7.7/7.8 s, 26.8/33.2 s, 167/116 s at 4096. Replicates within 0.3%. At 1024, R spends 62 to
@@ -139,13 +138,15 @@ queue; design, scope and pushes still go to Alex.
    closed-loop windows measured 6.116 s (Arch) and 6.123 s (Windows). Plain: run a short gRPC
    load test against each server variant, to learn how long one window takes and which load
    saturates the server.
-4. Done 2026-10-29 (chain A19, job `p5-gcc-16-2-0-l`; archive `C:/Users/alext/lab/laptop-archive/
-   gap40-a-q1-p5-gcc-877d16d0/`, sha256 17fac736...0beb checked): `~/opt/gcc-16.2.0` on Arch, per
-   `bench/requests/gcc-16.2.0.md`. g++ 16.2.0, probe line, 14 of 14, F1 as on the desktop. Make
-   -j14 2,611 s, install 15 s (the basis for a rebuild). Exit 1 was a script grep, fixed (Papers 6ec4ae3).
-5. Queued as A27 (at 4d205b4): `bench/requests/compile-rerun.md`, R after the front-end cuts.
-6. Ready 2026-10-30: `bench/requests/compile-rerun-2.md`, R after the decoder change, plus many
-   4096 at the raised limit.
+4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
+   `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
+5. Done 2026-10-31 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
+6. Done 2026-10-31 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
+   Pilot, not a result. R compile medians A27 to A28 (3 replicates each): wide 1024 26.43 to 22.81 s,
+   2048 75.62 to 53.58 s, 4096 246.90 to 126.62 s (code generation 229 to 106 s in the time
+   report); many 1024 32.84 to 33.94 s, 2048 71.68 to 73.88 s (+3%, ranges apart); 16 fields equal.
+   many 4096 at 67108864: 185.48 s, 5,520 MiB. A28 also holds 2542f6f, d7d7ab8, 6a0d8c9. Against
+   P (other runs): R wins wide at every size, loses many at 2048 (73.9 against 59.6 s) and 4096.
 
 ## Lab requests
 

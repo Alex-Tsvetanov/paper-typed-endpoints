@@ -18,6 +18,7 @@ option(TEP_WERROR "Treat warnings as errors" ON)
 option(TEP_FUZZ "Also build the fuzz targets as libFuzzer executables (clang only)" OFF)
 option(TEP_E2E "Build the end-to-end arms (needs the reflection layer and the pinned protobuf)" OFF)
 set(TEP_PROTOBUF_ROOT "" CACHE PATH "Install prefix of the pinned protobuf (bench/build_protobuf.sh)")
+set(TEP_NGHTTP2_ROOT "" CACHE PATH "Install prefix of the pinned libnghttp2 (bench/build_nghttp2.sh); empty: pkg-config (Linux)")
 
 # Portable layers: schema front end, wire primitives, gRPC framing (C++23).
 add_library(tep INTERFACE)
