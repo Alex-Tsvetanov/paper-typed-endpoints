@@ -42,9 +42,9 @@ question as sent and his pick verbatim.
 - Q4, download. Pick: "Download (Recommended)" for nghttp2-1.70.0.tar.xz from the GitHub release,
   checked against `bench/pins.md` before unpacking: 2,018,996 bytes, sha256 equal (2026-10-30).
 
-## 2026-10-31. Three decisions after the fourth review
+## 2026-10-30. Three decisions after the fourth review
 
-Decided by Alex (AskUserQuestion through the coordinator, 2026-10-31); his picks verbatim.
+Decided by Alex (AskUserQuestion through the coordinator, 2026-10-30); his picks verbatim.
 
 - M1, emulated thread-local storage on Windows. With winlibs MinGW-w64 GCC 16.2.0, `thread_local`
   compiles to calls of `__emutls_get_address`; protobuf's Arena reads a thread-local cache on every
@@ -59,4 +59,19 @@ Decided by Alex (AskUserQuestion through the coordinator, 2026-10-31); his picks
   and requests.cpp on Windows are a declared gap, covered by the Linux ASan record of the same
   files. Not taken: clang-cl ASan (LLVM on the laptop), protobuf as a DLL under MSVC ASan.
 - libev 4.33 download for h2load on Arch (`bench/pins.md`). Pick: "Download (Recommended)".
-  Fetched 2026-10-31 into a fresh folder: 569,527 bytes, sha256 equal to the pin.
+  Fetched 2026-10-30 into a fresh folder: 569,527 bytes, sha256 equal to the pin.
+
+## 2026-10-30. Interop downloads
+
+Decided by Alex (AskUserQuestion through the coordinator, 2026-10-30); his pick verbatim.
+
+- The interop tools of design note section 6 (`bench/pins.md`, Lab request 2 and ghz): Go 1.27.2
+  for Windows and Linux, ghz v0.121.0 for Windows and Linux, and the grpc-go modules through
+  proxy.golang.org with GOSUMDB on. Pick: "Download all (Recommended)". Conditions: each file in a
+  fresh folder, checked against its sha256 before use; the module cache size reported; `go.sum`
+  committed. Fetched 2026-10-30 under `C:\Users\alext\opt\_dl\p5-{go-1.27.2,ghz-0.121.0}-{linux,windows}`:
+  all four files have the pinned size and sha256. Unpacked to `%USERPROFILE%\opt\{go-1.27.2,
+  ghz-0.121.0}` and `D:\Dev\toolchains\{go-1.27.2,ghz-0.121.0}-linux`.
+
+Correction: entries and files written earlier today said 2026-10-31 for events of 2026-10-30
+(commit dates, the laptop's job logs). The dates are corrected in place.

@@ -134,7 +134,7 @@
     {
       "name": "msvc-e2e-asan",
       "inherits": "base",
-      "displayName": "MSVC with ASan, RelWithDebInfo without incremental linking: the transport with arm S only (MSVC ASan cannot start protoc's generated code; Alex, 2026-10-31), on an MSVC ASan libnghttp2 under %USERPROFILE%/opt (bench/build_deps_msvc.sh)",
+      "displayName": "MSVC with ASan, RelWithDebInfo without incremental linking: the transport with arm S only (MSVC ASan cannot start protoc's generated code; Alex, 2026-10-30), on an MSVC ASan libnghttp2 under %USERPROFILE%/opt (bench/build_deps_msvc.sh)",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "cl",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",

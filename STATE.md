@@ -47,20 +47,21 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
   libFuzzer executables.
 - Decoding: up to 16 fields compare inline, larger messages dispatch through field-number tables
-  (613d6fb, 1e4b25d). Unmeasured: nested sizes are recomputed while writing. R loses many from
-  2048 (A29): it emits decode code per field, protoc parses from tables. Rejected on a size proxy,
-  not timed (2026-10-31): table dispatch in invoke (.text +4.5%), out-of-line varint and skip slow
-  paths (+4 to 5%). The trade-off goes to Alex after A31.
-- Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
-  is 33,554,432 operations per outermost evaluation; GCC counts every expression node. A variable
-  template first used inside an evaluation shares its counter; forced earlier (a static_assert),
-  it gets its own (define_messages forces the tables so). `bench/constexpr_ops.sh` bisects the
-  limit (deterministic, not timing; MAX raises its ceiling). At d7d7ab8 (GCC 16.2.0) the tables:
-  many 1024, 2048, 4096: 8.91M, 17.8M, 35.7M (linear); wide 1024 6.55M. From 30.0M and 16.8M at
-  1024 the day before: one symbol table, fixed buffers instead of push_back (75 against 500
-  operations), one static string for all names, a token cursor. Ladder under default limits:
-  every cell except many 4096, which is the one secondary-curve cell (coordinator, 2026-10-30;
-  `design/revision-log.md`). The micro-cuts stopped there: code generation dominates compiles.
+  (613d6fb, 1e4b25d). Repeated fields reserve for the elements that arrive together and grow
+  geometrically otherwise (`test_growth`; the old exact reserve per packed chunk was quadratic).
+  Unmeasured: nested sizes are recomputed while writing. R loses many from 2048 (A29): it emits
+  decode code per field, protoc parses from tables. Rejected on a size proxy, not timed: table
+  dispatch in invoke (.text +4.5%), out-of-line slow paths (+4 to 5%). The compile trade-off
+  question waits for the medium runtime gap (A31) to be understood.
+- Heap allocations per call (`test_allocs`, a count): small 0 for S, R, P; medium S 0, P 32 (its
+  16 long strings, parsed and copied; arena strings keep heap buffers), R 93, 62 after the growth
+  fix. R's extra 30, by code reading: 14 vectors and the boxed customer, per parse and per copy.
+- Constant-evaluation budget: GCC 16's default `-fconstexpr-ops-limit` is 33,554,432 operations
+  per outermost evaluation (every expression node counts; a variable template forced early gets
+  its own counter, so define_messages forces the tables). `bench/constexpr_ops.sh` bisects it
+  (deterministic). At d7d7ab8 the tables take many 1024, 2048, 4096: 8.91M, 17.8M, 35.7M; wide
+  1024 6.55M. Every ladder cell fits except many 4096, the one secondary-curve cell (coordinator,
+  2026-10-30; `design/revision-log.md`). Code generation, not evaluation, dominates compiles.
 - Desktop toolchains (functional builds): `D:\Dev\toolchains\{gcc-16.2.0-linux, protobuf-36.2-linux,
   protobuf-36.2-linux-asan, nghttp2-1.70.0-linux}`, mounted under `/home/dev/opt`; and
   `%USERPROFILE%\opt\{protobuf-36.2-mingw, nghttp2-1.70.0-mingw, protobuf-36.2-msvc-asan,
@@ -69,13 +70,14 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 ## Build and test (desktop, functional only; no timing)
 
 - Presets in `CMakePresets.json`, build trees under `build/<preset>` (ignored).
-- Linux: `docker run --rm --cpus 4 --user dev -v D:\Dev\GitHub\Papers:/d/Dev/GitHub/Papers -v`
-  `D:\Dev\toolchains\gcc-16.2.0-linux:/home/dev/opt/gcc-16.2.0:ro -w <repo> papers-dev:arch-2026-10-23`
-  `bash tools/dev_linux_all.sh <presets>` (Git Bash: `MSYS_NO_PATHCONV=1`).
+- Linux: `docker run --rm --cpus 4 --user dev -v D:\Dev\GitHub\Papers:/d/Dev/GitHub/Papers` and
+  each of the four toolchains above `-v D:\Dev\toolchains\<name>-linux[-asan]:/home/dev/opt/<name>[-asan]:ro`,
+  `-w <repo> papers-dev:arch-2026-10-23 bash tools/dev_linux_all.sh <presets>` (`MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results at 91dbece (pass or fail only): `linux-gcc1620-{e2e,e2e-release}` and
-  `mingw-gcc1620-e2e-release` 19 of 19; `msvc-{debug,asan}` 8 of 8 portable, `reflection_layer`
-  Skipped with the reason; `msvc-e2e-asan` builds, `server` fails at start-up (M2).
+- Results (pass or fail only): growth fix, `linux-gcc1620-{e2e,e2e-release}` 22 of 22,
+  `mingw-gcc1620-e2e-release` 21 of 21 (`allocs` is Linux only). At 91dbece `msvc-{debug,asan}` 8 of
+  8 portable, `reflection_layer` Skipped with the reason; `msvc-e2e-asan` builds, `server` fails at
+  start-up (M2).
 - Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
   the encoder matches them byte for byte for all scalar types, enums, nested and repeated fields.
 - TSan: not run yet; the server has threads (`test_server`, two workers). Needs a TSan preset, a TSan
@@ -92,13 +94,11 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH). P2996 and `#embed`;
   F1 reproduces, F2 does not; no ASan or UBSan; `thread_local` is emulated (review M1).
 - GCC 16.2.0 on every host since 2026-10-29 (Alex decides 10; Laptop request 4; dev image above).
-- Compiler findings (details in `design/compiler-findings.md`):
-  - F1: GCC 16.2.1 miscompiles `string_view::find` from an offset when a constexpr function
-    receives a string literal. The portable layer avoids `find` in constexpr code.
-  - F2: GCC 16.2.1 UBSan checks `null`, `nonnull-attribute`, `returns-nonnull-attribute` break
-    constant evaluation of the reflection layer; the GCC sanitizer preset drops them.
-  - F3: clang 22 with libstdc++ 16 cannot build `std::string` in constant evaluation; clang
-    presets use libc++.
+- Compiler findings (`design/compiler-findings.md`): F1 GCC 16 `string_view::find` from an offset
+  on a literal in constexpr (avoided); F2 GCC UBSan `null`, `nonnull-attribute`,
+  `returns-nonnull-attribute` break constant evaluation (dropped from the preset); F3 clang 22
+  with libstdc++ 16, no constexpr `std::string` (clang presets use libc++); F4 MinGW static
+  libstdc++ multiple definition (dynamic libstdc++).
 - `ctpb-dev:latest` (bfa32b62a446): its protoc 3.21.12 only made the golden vectors.
 
 ## Status
@@ -112,13 +112,14 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
       push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
       Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
-- [x] Fourth fresh review (Opus, 23dfab3..1e4b25d, 2026-10-31): no CRITICAL or HIGH; 4 MEDIUM,
+- [x] Fourth fresh review (Opus, 23dfab3..1e4b25d, 2026-10-30): no CRITICAL or HIGH; 4 MEDIUM,
       7 LOW. Fixed and verified: M3 (multi-worker test), M4 (console handler), L5, L7 to L11
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: Alex's M1, M2 and the libev download; Laptop request 3 (e2e pilot, h2load on Arch);
-      interop with grpc-go; D5 records at the code freeze. A29 (Laptop request 7) queued.
+- [ ] Next: Laptop request 8 (second e2e pilot after the growth fix); then R's medium gap (the
+      options that change types or reuse messages are Alex's); interop with grpc-go (downloads wait
+      for Alex); D5 records at the code freeze.
 
 ## Laptop requests
 
@@ -127,38 +128,36 @@ queue; design, scope and pushes still go to Alex.
 
 1. Done 2026-10-24 on Arch (archive `gap1-a-q4-visit-a1-c0eb9960`, sha256 files match): Arch's
    gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
-2. Done 2026-10-29 (A23, pilot, not a result; archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256
-   4b01a015...cc82; at c525595). Medians: R 2.3/2.5 s at 16 (wide/many), 28.3/34.8 s at 1024;
-   P 7.7/7.8 s, 26.8/33.2 s, 167/116 s at 4096. Replicates within 0.3%. At 1024, R spends 62 to
-   78% in code generation, 11/21% in constant evaluation. Protobuf build on the laptop 91 s.
-3. Launched 2026-10-31 as A31 (build, then runs) at fce6a17: `bench/requests/e2e-pilot.md` (arms S,
-   R, P; h2load on Arch; window steadiness, saturating load). Review green after fce6a17.
+2. Done 2026-10-29 (A23 at c525595, archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256 4b01a015...cc82).
+   Pilot. Replicates within 0.3%; at 1024 R spends 62 to 78% in code generation.
+3. Done 2026-10-30 (A31 try 4 at fce6a17, `bench/requests/e2e-pilot.md`; archives
+   `gap54-a-q1-p5-e2e-build3-7186ae39` sha256 3ac6e3dc...9a7a, `gap52-a-q2-p5-e2e-run-2bd355f5`
+   sha256 30ed7123...619e). Pilot, not a result. 132 windows, 0 failed, all 2xx, server counts in
+   the bound; the job's count also matched `h2load-version.txt`. Window spread at most 1.7%. Knee
+   at c12 m128; c48 adds nothing (small) or loses (medium); c1 m1 is client-bound (about 30k req/s,
+   every arm). R/P from c12: small 1.01 to 1.07 (every R window above every P window), medium 0.97,
+   0.92, then 0.79 to 0.87 (every P window above). Medium order S P R; clock floor held.
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
-5. Done 2026-10-31 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
-6. Done 2026-10-31 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
-7. Done 2026-10-31 (A29 at fa60375, archive `gap50-a-q1-p5-rerun3-4b1cde4a`, sha256 345bea80...bf09):
-   51/51 built and checked. P across A23, A27, A29 within 0.9% per cell (run-to-run drift). R many
-   back to A27 (1024: 32.73 s, 2048: 71.60 s; A28 33.94, 73.88), R wide kept A28's gain. Same run,
-   R/P: 0.29 and 0.30 at 16; wide 0.86, 0.90, 0.77 (1024, 2048, 4096); many 1.00, 1.20, 1.56 (R
-   loses from 2048; many 4096 at the raised limit). RSS: R lower for wide, 2.9 times P at many 4096.
-   Pilot, not a result. R compile medians A27 to A28 (3 replicates each): wide 1024 26.43 to 22.81 s,
-   2048 75.62 to 53.58 s, 4096 246.90 to 126.62 s (code generation 229 to 106 s in the time
-   report); many 1024 32.84 to 33.94 s, 2048 71.68 to 73.88 s (+3%, ranges apart); 16 fields equal.
-   many 4096 at 67108864: 185.48 s, 5,520 MiB. A28 also holds 2542f6f, d7d7ab8, 6a0d8c9. Against
-   P (other runs): R wins wide at every size, loses many at 2048 (73.9 against 59.6 s) and 4096.
+5. Done 2026-10-30 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
+6. Done 2026-10-30 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
+7. Done 2026-10-30 (A29 at fa60375, archive `gap50-a-q1-p5-rerun3-4b1cde4a`, sha256 345bea80...bf09):
+   51/51 built and checked. P across A23, A27, A29 within 0.9% per cell. Same run, R/P: 0.29 and
+   0.30 at 16; wide 0.86, 0.90, 0.77 (1024, 2048, 4096); many 1.00, 1.20, 1.56 (R loses from 2048;
+   many 4096 at the raised limit). RSS: R lower for wide, 2.9 times P at many 4096. A27 to A28 cut
+   R wide (4096: 246.90 to 126.62 s, code generation 229 to 106 s); many unchanged. Pilot.
+8. Ready: `bench/requests/e2e-pilot-2.md`, the first pilot again after the growth fix, R and P
+   swapped in each payload's order.
 
 ## Lab requests
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 
-1. Done 2026-10-29 on the desktop: protobuf 36.2 (protoc Linux and Windows, runtime) and abseil
-   20250512.1 in `C:\Users\alext\opt\_dl\p5-protobuf-36.2`, sha256 equal to `bench/pins.md`.
+1. Done 2026-10-29: protobuf 36.2 and abseil 20250512.1 in `C:\Users\alext\opt\_dl\p5-protobuf-36.2`.
 2. Pin Go 1.27.2 (Alex, D2: the same as P4 and P7) and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
    through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
 3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
-4. Done 2026-10-24 (job `p5-mingw-w`, exit 0, per the coordinator): the MinGW-w64 GCC 16.2.0 zip
-   copied to the laptop's Windows, sha256 checked, unpacked to the desktop's path.
+4. Done 2026-10-24 (job `p5-mingw-w`): the MinGW-w64 GCC 16.2.0 zip on the laptop's Windows, checked.
 
 ## Alex decides
 

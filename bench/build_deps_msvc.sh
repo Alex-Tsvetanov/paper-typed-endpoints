@@ -6,7 +6,7 @@
 # libnghttp2 (static, the library only) with the msvc-e2e-asan preset's configuration:
 # RelWithDebInfo, the dynamic CRT (/MD), and /fsanitize=address. That record covers the transport
 # with arm S and no protobuf: under MSVC ASan every program that links protoc's generated code
-# stops before main (bench/coverage.json; Alex, 2026-10-31, design/revision-log.md).
+# stops before main (bench/coverage.json; Alex, 2026-10-30, design/revision-log.md).
 #
 # MSVC options are written with a dash (-fsanitize=address), which cl accepts, because Git Bash
 # rewrites an argument holding "=/..." as a Windows path.

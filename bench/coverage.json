@@ -27,8 +27,8 @@
       "msvc_asan": "planned (MSVC 19.51, preset msvc-asan); records made on the laptop"
     },
     "server": {
-      "msvc_asan": "planned: preset msvc-e2e-asan (TEP_E2E_TRANSPORT_ONLY) builds the transport (net_windows.cpp, h2_server.cpp, main.cpp) with arm S on an MSVC ASan libnghttp2 and runs test_server; records made on the laptop (Alex, 2026-10-31, option (a))",
-      "arm_p": "gap: arm_p.cpp and requests.cpp on Windows. Under MSVC ASan every program that links protoc's generated code stops before main (a null call in protobuf's table-driven parser while the descriptor registers; protobuf's port_def.inc says MSVC cannot guarantee constant initialization of its parse tables). The Linux GCC ASan+UBSan record covers the same source files. clang-cl 22.1.0 ASan runs that code (desktop test, 2026-10-31) but would need LLVM on the laptop; not chosen (Alex, 2026-10-31)"
+      "msvc_asan": "planned: preset msvc-e2e-asan (TEP_E2E_TRANSPORT_ONLY) builds the transport (net_windows.cpp, h2_server.cpp, main.cpp) with arm S on an MSVC ASan libnghttp2 and runs test_server; records made on the laptop (Alex, 2026-10-30, option (a))",
+      "arm_p": "gap: arm_p.cpp and requests.cpp on Windows. Under MSVC ASan every program that links protoc's generated code stops before main (a null call in protobuf's table-driven parser while the descriptor registers; protobuf's port_def.inc says MSVC cannot guarantee constant initialization of its parse tables). The Linux GCC ASan+UBSan record covers the same source files. clang-cl 22.1.0 ASan runs that code (desktop test, 2026-10-30) but would need LLVM on the laptop; not chosen (Alex, 2026-10-30)"
     },
     "reflection": "gap: on Windows only MinGW-w64 GCC 16 builds the reflection layer and arm R, and it has no ASan or UBSan; MSVC and clang-cl have no P2996. The Linux GCC ASan+UBSan and TSan records cover the same first-party inputs (CLAUDE.md D5; p5-typed-endpoints/AGENTS.md line 24)"
   },
