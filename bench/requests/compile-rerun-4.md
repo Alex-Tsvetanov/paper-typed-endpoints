@@ -12,6 +12,11 @@ bytes (+15.2%), `wide 1024` 431,608 to 442,064 bytes (+2.4%). A29 had R against 
 1024`) and 1.20 (`many 2048`). This run measures what the reuse costs in compile time, with P
 interleaved in the same run, before the many-shape trade-off goes to Alex.
 
+Later commits (2026-10-30): the encoder writes back to front and sizes each message once. Against
+7997c9c, untimed: `many 1024` .text 564,189 to 567,221 bytes (+0.5%), `many 2048` +0.6%, `wide
+1024` 442,064 to 416,488 bytes (-5.8%). If the queue entry names such a commit, this run measures
+both changes; the builds and outputs are the same.
+
 ## Prerequisites
 
 As for A29: `~/opt/gcc-16.2.0` and `~/opt/protobuf-36.2` exist; nothing is rebuilt. The P5

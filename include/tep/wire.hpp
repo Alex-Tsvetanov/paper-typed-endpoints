@@ -70,6 +70,36 @@ struct writer {
     }
 };
 
+// Writes backwards into a buffer whose size was computed beforehand: each call moves p down by
+// the size of what it writes, and writes there. A message written from its last field to its
+// first knows each length before it writes the length's prefix, so no nested size is computed
+// twice. The caller guarantees room below p.
+struct back_writer {
+    std::byte* p;
+
+    constexpr void varint(std::uint64_t v) noexcept {
+        p -= varint_size(v);
+        std::byte* q = p;
+        while (v >= 0x80) {
+            *q++ = static_cast<std::byte>(static_cast<std::uint8_t>(v) | 0x80u);
+            v >>= 7;
+        }
+        *q = static_cast<std::byte>(v);
+    }
+    constexpr void fixed32(std::uint32_t v) noexcept {
+        p -= 4;
+        for (int i = 0; i < 4; ++i) p[i] = static_cast<std::byte>(v >> (8 * i));
+    }
+    constexpr void fixed64(std::uint64_t v) noexcept {
+        p -= 8;
+        for (int i = 0; i < 8; ++i) p[i] = static_cast<std::byte>(v >> (8 * i));
+    }
+    void bytes(const void* data, std::size_t n) noexcept {
+        p -= n;
+        if (n != 0) std::memcpy(p, data, n);
+    }
+};
+
 enum class read_error : std::uint8_t {
     truncated,
     malformed_varint,

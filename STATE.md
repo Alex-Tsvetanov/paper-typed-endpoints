@@ -49,16 +49,17 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `test_interop` (`-DTEP_INTEROP_BIN`, `-DTEP_GHZ`): grpc-go client and ghz against R and P, tep
   against the grpc-go server; each side checks every field. Passes on Linux (Release, ASan), MinGW.
 - Decoding: up to 16 fields compare inline, larger messages through field-number tables. Repeated
-  fields reserve for elements that arrive together, else grow geometrically (`test_growth`). Nested
-  sizes are computed again while writing (A35: `byte_size` of Item, 7.4% of R's medium cycles). R
-  loses many from 2048 (A29): per-field decode against protoc's tables; size-proxy fixes rejected.
+  fields reserve for elements that arrive together, else grow geometrically (`test_growth`). Encoding
+  writes back to front, sizing each message once (A35: sizing Item again was 7.4% of R's medium
+  cycles). R loses many from 2048 (A29): per-field decode against protoc's tables.
 - Heap allocations per call (`test_allocs`, a count, identical requests): small 0 for every arm;
   medium S 0, P 32 (arena strings keep heap buffers), Q 0 (protobuf's cleared repeated fields
   keep their elements), R 93, then 62 (growth fix), then 27 (reuse: the copy into the cleared
   response builds 12 items, the customer and one long label; a std::vector cannot keep cleared
   elements). Reuse: `parse_from` gives decode's result (fuzzed, split inputs), retained storage
   within twice the last messages' (slack rule), slots taken out per call (re-entry safe).
-  Size proxy, not timed (60eff0e to reuse): .text many 1024 +15.2%, wide 1024 +2.4%.
+  Size proxy, not timed: .text many 1024 +15.2%, wide 1024 +2.4% (60eff0e to reuse); then many 1024
+  +0.5%, many 2048 +0.6%, wide 1024 -5.8% (back writer; GIMPLE statements many 1024 -0.6%).
 - Constant-evaluation budget: GCC 16's default `-fconstexpr-ops-limit` is 33,554,432 operations
   per outermost evaluation (every expression node counts; a variable template forced early gets
   its own counter, so define_messages forces the tables). `bench/constexpr_ops.sh` bisects it
@@ -77,7 +78,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   each of the four toolchains above `-v D:\Dev\toolchains\<name>-linux[-asan]:/home/dev/opt/<name>[-asan]:ro`,
   `-w <repo> papers-dev:arch-2026-10-23 bash tools/dev_linux_all.sh <presets>` (`MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results (pass or fail only), reuse and arm Q, with interop: `linux-gcc1620-{e2e,e2e-release}` 23
+- Results (pass or fail only), back writer, with interop: `linux-gcc1620-{e2e,e2e-release}` 23
   of 23 (`allocs` Skipped under ASan), `mingw-gcc1620-e2e-release` 22 of 22, `fuzz_decode` 300,000
   mutations under ASan+UBSan; `msvc-e2e-asan` 9 of 9 at 60eff0e (transport only).
 - Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
@@ -101,8 +102,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Status
 
-- [x] Repository, STATE.md, design note draft, compiler findings.
-- [x] Skeleton building; tests pass on Linux, MSVC (portable layers) and MinGW GCC 16 (all).
+- [x] Repository, design note draft, compiler findings; tests pass on Linux, MSVC (portable), MinGW.
 - [x] Fresh reviews 1 (2026-10-23, 8764052) and 2 (8764052..de304a9): all CRITICAL, HIGH, MEDIUM
       fixed. Open LOW: option value types (`[deprecated = "yes"]` accepted), `1abc` one floating
       token, no decode allocation cap beyond the 4 MiB frame (bounded by sizeof(M) per 2 bytes).
@@ -115,8 +115,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: one size pass in the encoder (no API change); A36; then one question to Alex (R against
-      Q on medium, many-shape compile); a pilot with R and Q swapped; D5 records at the code freeze.
+- [ ] Next: Laptop request 11 (pilot 4: back writer, R and Q mirrored); A36; then one question to
+      Alex (R against Q on medium, many-shape compile); D5 records at the code freeze.
 
 ## Laptop requests
 
@@ -127,10 +127,8 @@ queue; design, scope and pushes still go to Alex.
    gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
 2. Done 2026-10-29 (A23 at c525595, archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256 4b01a015...cc82).
    Pilot. Replicates within 0.3%; at 1024 R spends 62 to 78% in code generation.
-3. Done 2026-10-30 (A31 at fce6a17, `bench/requests/e2e-pilot.md`; archive run
-   `gap52-a-q2-p5-e2e-run-2bd355f5` sha256 30ed7123...619e). Pilot. Checks pass; spread at most 1.7%;
-   knee c12 m128; c1 m1 client-bound (about 30k req/s, every arm). R/P from c12: small 1.01 to
-   1.07, medium 0.97, 0.92, then 0.79 to 0.87.
+3. Done 2026-10-30 (A31 at fce6a17; archive `gap52-a-q2-p5-e2e-run-2bd355f5` sha256 30ed7123...619e).
+   Pilot. Spread at most 1.7%; knee c12 m128; c1 m1 client-bound (about 30k req/s, every arm).
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. Done 2026-10-30 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
@@ -150,7 +148,9 @@ queue; design, scope and pushes still go to Alex.
    1.01 to 1.11) and Q on small (1.005 to 1.03); Q beats R on medium (0.99, then 0.84 to 0.91 from c12
    m8), but the later arm lost in both orders. Profile proxy, user cycles per medium request: R 9,178
    (A33 10,291), P 9,535, Q 7,927; libc R 16.3%, Q 4.7%; R's own code ties Q's: the gap is allocation.
-10. Queued as A36 at 7997c9c: `bench/requests/compile-rerun-4.md` (R and P swap on even replicates).
+10. A36 (`bench/requests/compile-rerun-4.md`): refused before launch on the coordinator's side; to
+    run at the back-writer commit if ready in time, else at 7997c9c (R and P swap on even replicates).
+11. Ready: `bench/requests/e2e-pilot-4.md`, pilot 4 (S, R, Q and P; R and Q twice per payload, mirrored).
 
 ## Lab requests
 

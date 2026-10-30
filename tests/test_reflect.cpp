@@ -462,6 +462,43 @@ void test_reuse_is_bounded() {
 
 }  // namespace
 
+// encode and encode_framed write back to front; encode_to, front to back, is the reference. The
+// backward writer must begin exactly at the buffer's start and match the reference byte for byte.
+template <class M>
+void check_backward(const M& m) {
+    const std::size_t n = tep::byte_size(m);
+    std::vector<std::byte> forward(n);
+    TEP_CHECK(tep::encode_to(m, forward.data()) == forward.data() + n);
+    std::vector<std::byte> backward(n);
+    TEP_CHECK(tep::detail::encode_back(m, backward.data() + n) == backward.data());
+    TEP_CHECK(backward == forward);
+    TEP_CHECK(tep::encode(m) == forward);
+    std::vector<std::byte> framed;
+    TEP_CHECK(tep::encode_framed(m, framed) && framed.size() == tep::grpc::prefix_size + n);
+    TEP_CHECK(std::equal(forward.begin(), forward.end(),
+                         framed.begin() + static_cast<std::ptrdiff_t>(tep::grpc::prefix_size)));
+}
+
+void test_backward_writer() {
+    check_backward(full_value());
+    check_backward(Everything{});
+    Everything z{};
+    z.f_double = -0.0;
+    check_backward(z);
+    check_backward(Inner{-1, ""});
+    check_backward(rich_holder());
+    check_backward(sparse_holder());
+    check_backward(Holder{});
+    // Lengths of two bytes: a nested string, a packed payload and a nested message over 127 bytes,
+    // and negative int32 values of ten bytes each.
+    Holder h = rich_holder();
+    h.one->label = std::string(300, 'L');
+    for (std::int32_t i = 0; i < 200; ++i) h.packed.push_back(i * 1000 - 70000);
+    h.many[0].twigs.resize(40, Twig{.n = -1, .s = std::string(10, 'q')});
+    TEP_CHECK(tep::byte_size(*h.one) > 300 && tep::byte_size(h.many[0]) > 127);
+    check_backward(h);
+}
+
 int main() {
     test_matches_protoc();
     test_defaults();
@@ -471,5 +508,6 @@ int main() {
     test_parse_from();
     test_clear();
     test_reuse_is_bounded();
+    test_backward_writer();
     return tep_test::finish("test_reflect");
 }

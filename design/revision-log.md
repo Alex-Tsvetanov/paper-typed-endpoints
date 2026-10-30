@@ -103,3 +103,17 @@ Decided by this session (no new question: it carries out decision 4 of 2026-10-2
   The same tips advise deleting messages that grow too big; Q and R both drop their reused
   messages after a call larger than 64 KiB (wire size, since `SpaceUsed` walks the message by
   reflection on every call). Pilots from now on run S, R, P and Q.
+
+## 2026-10-30. R's encoder writes back to front; R and Q in mirrored order
+
+Decided by this session under D2 (no new question; decision notice to the coordinator).
+
+- A35's profile showed R sizing each nested message twice: once for the whole message's size,
+  once more for each length prefix while writing (`byte_size` of Item, 7.4% of R's cycles on
+  medium). `encode` and `encode_framed` now write back to front (`detail::encode_back`), so a
+  length is known when its prefix is written, and every message is sized once, as protobuf's
+  cached sizes do. The forward writer (`encode_to`) stays as the reference; the tests and
+  `fuzz_decode` require the same bytes and a write that ends exactly at the buffer's start.
+- A35 ran each arm once per payload; R and Q swapped places only between payloads, and the later
+  arm lost R against Q in both. The next pilot runs R and Q twice per payload in mirrored order
+  (`bench/requests/e2e-pilot-4.md`).

@@ -4,7 +4,8 @@
 // Fuzz target: the reflection decoder on arbitrary bytes, decoded as the golden Everything message
 // (every scalar type, enums, nested and repeated fields; the table dispatch) and as Holder (nested
 // and repeated messages behind the inline dispatch of small messages). A successful decode must re-encode to
-// byte_size bytes, and the re-encoded bytes must decode and encode again to the same bytes (the
+// byte_size bytes, the backward writer must match the forward one (encode_to) byte for byte, and
+// the re-encoded bytes must decode and encode again to the same bytes (the
 // encoding is canonical; bytes are compared rather than messages because NaN != NaN). GCC is the
 // only compiler with P2996 and has no libFuzzer, so this runs under fuzz/standalone_main.cpp.
 #include <cstddef>
@@ -59,6 +60,12 @@ void round_trip(std::span<const std::byte> bytes) {
     if (!m) return;
     const std::vector<std::byte> once = tep::encode(*m);
     require(once.size() == tep::byte_size(*m));
+    // encode writes back to front; it begins exactly at the buffer's start and matches the forward
+    // writer (encode_to) byte for byte.
+    std::vector<std::byte> forward(once.size());
+    require(tep::encode_to(*m, forward.data()) == forward.data() + forward.size() && forward == once);
+    std::vector<std::byte> backward(once.size());
+    require(tep::detail::encode_back(*m, backward.data() + backward.size()) == backward.data());
     const auto back = tep::decode<M>(once);
     require(back.has_value());
     require(tep::encode(*back) == once);

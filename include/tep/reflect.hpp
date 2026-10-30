@@ -522,6 +522,11 @@ consteval std::vector<std::uint32_t> make_order() {
 template <class T>
 inline constexpr auto order = std::define_static_array(make_order<T>());
 
+// The same indices last to first, for the backward writer.
+template <class T>
+inline constexpr auto reverse_order =
+    std::define_static_array(std::vector<std::uint32_t>(order<T>.rbegin(), order<T>.rend()));
+
 template <class T, std::uint32_t K>
 inline constexpr field_meta field_of = tables<typename message_traits<T>::schema>.fields[meta_of<T>().first_field + K];
 
@@ -726,6 +731,9 @@ constexpr std::size_t byte_size(const T& msg) noexcept {
 }
 
 // Writes exactly byte_size(msg) bytes at out and returns the end. The caller sizes the buffer.
+// It writes front to back, so each nested message is sized again for its length prefix; encode
+// and encode_framed write back to front instead and size each message once. The tests keep this
+// writer as the reference the backward one must match byte for byte.
 template <synthesized_message T>
 std::byte* encode_to(const T& msg, std::byte* out) noexcept {
     wire::writer w{out};
@@ -736,10 +744,87 @@ std::byte* encode_to(const T& msg, std::byte* out) noexcept {
     return w.p;
 }
 
+namespace detail {
+
+template <schema::scalar S, class V>
+void write_value_back(wire::back_writer& w, const V& v) noexcept {
+    using enum schema::scalar;
+    constexpr auto wt = wire_of(S);
+    if constexpr (wt == wire::wire_type::varint) {
+        w.varint(varint_value<S>(v));
+    } else if constexpr (S == float_) {
+        w.fixed32(std::bit_cast<std::uint32_t>(v));
+    } else if constexpr (S == double_) {
+        w.fixed64(std::bit_cast<std::uint64_t>(v));
+    } else if constexpr (wt == wire::wire_type::i32) {
+        w.fixed32(static_cast<std::uint32_t>(v));
+    } else if constexpr (wt == wire::wire_type::i64) {
+        w.fixed64(static_cast<std::uint64_t>(v));
+    } else {
+        w.bytes(v.data(), v.size());
+        w.varint(v.size());
+    }
+}
+
+template <synthesized_message T>
+std::byte* encode_back(const T& msg, std::byte* end) noexcept;
+
+// write_field mirrored: elements last to first, each tag and length after what it precedes. A
+// length is the distance the writer moved, so nothing is sized in advance.
+template <field_meta F, class V>
+void write_field_back(wire::back_writer& w, const V& v) noexcept {
+    if constexpr (F.kind == schema::field_kind::message) {
+        const auto one = [&](const auto& e) {
+            std::byte* const end = w.p;
+            w.p = encode_back(e, end);
+            w.varint(static_cast<std::size_t>(end - w.p));
+            w.varint(tag_of<F>);
+        };
+        if constexpr (F.repeated) {
+            for (auto it = v.rbegin(); it != v.rend(); ++it) one(*it);
+        } else if (v.has_value()) {
+            one(*v);
+        }
+    } else {
+        constexpr auto S = effective(F);
+        if constexpr (F.repeated) {
+            if (v.empty()) return;
+            if constexpr (F.packed) {
+                std::byte* const end = w.p;
+                for (auto it = v.rbegin(); it != v.rend(); ++it) write_value_back<S>(w, *it);
+                w.varint(static_cast<std::size_t>(end - w.p));
+                w.varint(tag_of<F>);
+            } else {
+                for (auto it = v.rbegin(); it != v.rend(); ++it) {
+                    write_value_back<S>(w, *it);
+                    w.varint(tag_of<F>);
+                }
+            }
+        } else {
+            if (is_default<S>(v)) return;
+            write_value_back<S>(w, v);
+            w.varint(tag_of<F>);
+        }
+    }
+}
+
+// Writes msg so that it ends at `end` and returns where it begins: end - byte_size(msg).
+template <synthesized_message T>
+std::byte* encode_back(const T& msg, std::byte* end) noexcept {
+    wire::back_writer w{end};
+    template for (constexpr std::uint32_t k : reverse_order<T>) {
+        constexpr auto mem = members<T>[k];
+        write_field_back<field_of<T, k>>(w, msg.[:mem:]);
+    }
+    return w.p;
+}
+
+}  // namespace detail
+
 template <synthesized_message T>
 std::vector<std::byte> encode(const T& msg) {
     std::vector<std::byte> out(byte_size(msg));
-    encode_to(msg, out.data());
+    detail::encode_back(msg, out.data() + out.size());
     return out;
 }
 
@@ -752,7 +837,7 @@ bool encode_framed(const T& msg, std::vector<std::byte>& out) {
     if (n > 0xFFFF'FFFFu) return false;
     out.resize(grpc::prefix_size + n);
     grpc::write_prefix(out.data(), false, static_cast<std::uint32_t>(n));
-    encode_to(msg, out.data() + grpc::prefix_size);
+    detail::encode_back(msg, out.data() + out.size());
     return true;
 }
 
