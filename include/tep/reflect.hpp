@@ -873,9 +873,16 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
     }
 }
 
-// Decoding dispatches on the field number through tables: comparing the number with every field
-// made decoding quadratic in the field count, and made merge_from as large as the message for the
-// optimizer. Each field's decoder is a function of its own.
+// Decoding dispatches on the field number in one of two ways. A message with at most
+// inline_dispatch_fields fields compares the number with each field inside merge_from. A larger
+// message dispatches through tables, with each field's decoder a function of its own: comparisons
+// make decoding quadratic in the field count and merge_from as large as the message for the
+// optimizer, while the tables cost a function per field and two static arrays per message, which
+// made compiling many small messages slower in the pilot (Laptop request 6). The threshold is a
+// design choice, not a measured crossover: the many shape (8 fields per message) and the
+// end-to-end messages compare; the wide shape compares at 16 fields and uses tables from 32.
+inline constexpr std::size_t inline_dispatch_fields = 16;
+
 template <class T, std::uint32_t K>
 constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_error& err) {
     constexpr auto mem = members<T>[K];
@@ -952,7 +959,18 @@ constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
         if (tag > 0xFFFF'FFFFu || (tag >> 3) == 0 || r.p - tag_start > 5) return err = decode_error::bad_tag, false;
         const auto number = static_cast<std::uint32_t>(tag >> 3);
         const auto wt = static_cast<wire::wire_type>(tag & 7u);
-        if (const std::uint32_t slot = detail::slot_of<T>(number); slot != 0) {
+        if constexpr (detail::members<T>.size() <= detail::inline_dispatch_fields) {
+            bool known = false;
+            template for (constexpr std::uint32_t k : detail::order<T>) {
+                constexpr field_meta f = detail::field_of<T, k>;
+                if (!known && number == f.number) {
+                    known = true;
+                    constexpr auto mem = detail::members<T>[k];
+                    if (!detail::read_field<f>(msg.[:mem:], r, wt, err)) return false;
+                }
+            }
+            if (!known && !r.skip(wt, number, re)) return err = detail::from_read(re), false;
+        } else if (const std::uint32_t slot = detail::slot_of<T>(number); slot != 0) {
             if (!detail::readers<T>[slot - 1](msg, r, wt, err)) return false;
         } else if (!r.skip(wt, number, re)) {
             return err = detail::from_read(re), false;

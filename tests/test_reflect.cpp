@@ -29,6 +29,29 @@ consteval { tep::define_messages<everything_proto>(); }
 using Everything = tep::message_t<everything_proto, "tep.test.Everything">;
 using Inner = tep::message_t<everything_proto, "tep.test.Inner">;
 
+// Both decode dispatches: Small (16 fields) compares inline, Dense (17 fields, numbers 1 to 17)
+// uses the direct slot table. Everything (30 fields, one number of 536870911) uses the binary search.
+struct dispatch_proto {
+    static constexpr std::string_view text = R"(syntax = "proto3";
+package tep.dispatch;
+message Small {
+  int32 a1 = 1; string a2 = 2; sint64 a3 = 3; fixed32 a4 = 4; repeated int32 a5 = 5; double a6 = 6;
+  bool a7 = 7; bytes a8 = 8; uint64 a9 = 9; sfixed64 a10 = 10; float a11 = 11; int64 a12 = 12;
+  repeated string a13 = 13; uint32 a14 = 14; sint32 a15 = 15; fixed64 a16 = 16;
+}
+message Dense {
+  int32 b1 = 1; string b2 = 2; sint64 b3 = 3; fixed32 b4 = 4; repeated int32 b5 = 5; double b6 = 6;
+  bool b7 = 7; bytes b8 = 8; uint64 b9 = 9; sfixed64 b10 = 10; float b11 = 11; int64 b12 = 12;
+  repeated string b13 = 13; uint32 b14 = 14; sint32 b15 = 15; fixed64 b16 = 16; Small b17 = 17;
+}
+)";
+};
+
+consteval { tep::define_messages<dispatch_proto>(); }
+
+using Small = tep::message_t<dispatch_proto, "tep.dispatch.Small">;
+using Dense = tep::message_t<dispatch_proto, "tep.dispatch.Dense">;
+
 // Synthesis ran: the members exist with the schema's names, order and mapped types.
 namespace synthesis {
 
@@ -196,6 +219,53 @@ void test_decode_errors() {
     }
 }
 
+// Each dispatch decodes every field, skips unknown fields and wrong wire types, and rejects
+// field number 0.
+template <class M>
+void check_dispatch(const M& value) {
+    auto bytes = tep::encode(value);
+    auto back = tep::decode<M>(bytes);
+    TEP_CHECK(back && *back == value);
+    // An unknown varint field (number 99) and a known field (1) sent as fixed32 are both skipped.
+    for (const int b : {0x98, 0x06, 0x07, 0x0D, 0x01, 0x02, 0x03, 0x04}) bytes.push_back(static_cast<std::byte>(b));
+    back = tep::decode<M>(bytes);
+    TEP_CHECK(back && *back == value);
+    const auto zero = tep::decode<M>(tep_test::bytes({0x00}));
+    TEP_CHECK(!zero && zero.error() == tep::decode_error::bad_tag);
+}
+
+void test_dispatch_paths() {
+    constexpr auto ctx = std::meta::access_context::unchecked();
+    static_assert(std::meta::nonstatic_data_members_of(^^Small, ctx).size() <= tep::detail::inline_dispatch_fields);
+    static_assert(std::meta::nonstatic_data_members_of(^^Dense, ctx).size() > tep::detail::inline_dispatch_fields);
+    Small s{};
+    s.a1 = -7;
+    s.a2 = "two";
+    s.a3 = -300;
+    s.a4 = 4;
+    s.a5 = {5, -5, 500};
+    s.a6 = 6.5;
+    s.a7 = true;
+    s.a8 = std::string{char{0}, static_cast<char>(0xFF)};
+    s.a9 = 9'000'000'000ull;
+    s.a10 = -10;
+    s.a11 = 11.25f;
+    s.a12 = -12;
+    s.a13 = {"x", "", "thirteen"};
+    s.a14 = 14;
+    s.a15 = -15;
+    s.a16 = 16;
+    check_dispatch(s);
+    Dense d{};
+    d.b1 = 1;
+    d.b2 = "dense";
+    d.b5 = {1, 2, 3};
+    d.b13 = {"a", "b"};
+    d.b16 = 0xFFFF'FFFF'FFFF'FFFFull;
+    d.b17 = s;
+    check_dispatch(d);
+}
+
 }  // namespace
 
 int main() {
@@ -203,5 +273,6 @@ int main() {
     test_defaults();
     test_decode_rules();
     test_decode_errors();
+    test_dispatch_paths();
     return tep_test::finish("test_reflect");
 }
