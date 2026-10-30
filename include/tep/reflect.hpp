@@ -79,9 +79,10 @@ namespace detail {
 
 // Storage kept for reuse follows the messages a reused object holds: a string or vector whose
 // capacity passes twice its size plus the slack gives the rest back when it is cleared, and storage
-// that a whole message left unused (a repeated field's kept elements, an absent nested message's
-// storage) is freed at the next clear. A reused message then holds what the last message decoded
-// into, reset, within that slack.
+// that nothing reused between two shrinks (a repeated field's kept elements, an absent nested
+// message's storage) is freed at the second one. After parse_from, a reused message holds what this
+// message and the one before it decoded into, within that slack. Clearing twice in a row therefore
+// gives up all kept storage.
 inline constexpr std::size_t string_slack = 64;
 inline constexpr std::size_t vector_slack = 16;
 
@@ -1683,7 +1684,8 @@ private:
     // what an earlier one already sized. A call takes the slot out for its duration, so a handler
     // that calls invoke again gets a slot of its own; the slot comes back only after a call that
     // succeeded with a request and a response of at most reuse_limit_bytes, and is released
-    // otherwise (a failure, an exception, a large call).
+    // otherwise (a failure, an exception, a large call). The response reaches a handler already
+    // cleared; clearing it or its fields again gives up the storage kept for reuse.
     static constexpr std::size_t reuse_limit_bytes = 64 * 1024;
 
     template <std::uint32_t K>
