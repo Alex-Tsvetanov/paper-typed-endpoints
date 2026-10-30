@@ -231,6 +231,7 @@ int main() {
     TEP_CHECK(run(interop_program("interop_client"), "-write-json " + quoted(dir)) == 0);
     go_client_calls("arm R", e2e::make_reflection_arm, dir);
     go_client_calls("arm P", e2e::make_protoc_arm, dir);
+    go_client_calls("arm Q", e2e::make_protoc_reuse_arm, dir);
     tep_client_calls(dir);
     std::error_code ignored;
     fs::remove_all(dir, ignored);

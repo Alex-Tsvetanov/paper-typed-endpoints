@@ -5,7 +5,7 @@
 // not a timing: deterministic for a given build, so it can explain a difference in throughput
 // without timing anything here. The response buffer is reused across calls, as the transport
 // reuses it, so its own growth is not counted after the first call. Arm R's counts are bounded,
-// so a regression fails; arm P's depend on protobuf's internals and are only printed. Skipped
+// so a regression fails; arm Q's must stay 0 (reuse working); arm P's are only printed. Skipped
 // under GCC's ASan and TSan, whose runtimes define the array and nothrow forms themselves.
 #include <cstddef>
 #include <cstdio>
@@ -76,13 +76,19 @@ int main() {
     const auto s = e2e::make_stub_arm();
     const auto r = e2e::make_reflection_arm();
     const auto p = e2e::make_protoc_arm();
-    for (const auto& [name, a] : {std::pair{"S", s.get()}, std::pair{"R", r.get()}, std::pair{"P", p.get()}}) {
+    const auto q = e2e::make_protoc_reuse_arm();
+    for (const auto& [name, a] :
+         {std::pair{"S", s.get()}, std::pair{"R", r.get()}, std::pair{"P", p.get()}, std::pair{"Q", q.get()}}) {
         const double at_small = count(name, *a, "small", "/bench.e2e.Echo/EchoPerson", small);
         const double at_medium = count(name, *a, "medium", "/bench.e2e.Echo/EchoOrder", medium);
         if (std::string_view(name) == "S") TEP_CHECK(at_small == 0 && at_medium == 0);
-        // R: nothing for Person (short strings); for Order its 16 long strings, 14 vectors and the
-        // boxed customer, once decoding and once copying.
-        if (std::string_view(name) == "R") TEP_CHECK(at_small == 0 && at_medium <= 62);
+        // R: nothing for Person (short strings). For Order, the request is parsed into the storage of
+        // the previous one (no allocation); the copy into the cleared response allocates its nested
+        // customer and its email, 12 items (each a name and its tags) and one long label.
+        if (std::string_view(name) == "R") TEP_CHECK(at_small == 0 && at_medium <= 27);
+        // Q: protobuf's Clear() keeps repeated elements, string capacity and the nested customer
+        // (protobuf 36.2, pinned), so a steady run of identical requests allocates nothing.
+        if (std::string_view(name) == "Q") TEP_CHECK(at_small == 0 && at_medium == 0);
     }
     return tep_test::finish("test_allocs");
 }

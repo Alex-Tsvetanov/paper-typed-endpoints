@@ -101,6 +101,8 @@ int main() {
 #if TEP_E2E_ARM_P
     exercise("arm P", e2e::make_protoc_arm, {}, 1);
     exercise("arm P, 2 workers", e2e::make_protoc_arm, {0, 1}, 4);
+    exercise("arm Q", e2e::make_protoc_reuse_arm, {}, 1);
+    exercise("arm Q, 2 workers", e2e::make_protoc_reuse_arm, {0, 1}, 4);
 #endif
     exercise("arm S", e2e::make_stub_arm, {}, 1);
     exercise("arm S, 2 workers", e2e::make_stub_arm, {0, 1}, 4);

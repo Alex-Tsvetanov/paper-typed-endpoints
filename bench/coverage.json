@@ -3,7 +3,7 @@
   "layers": {
     "portable": "include/tep/schema.hpp, wire.hpp, grpc.hpp, fixed_string.hpp",
     "reflection": "include/tep/reflect.hpp",
-    "server": "server/h2_server.cpp, net_linux.cpp, net_windows.cpp, main.cpp (the transport, one thread per server CPU); arm_p.cpp, requests.cpp (arm P); arm_r.cpp (arm R, reflection)"
+    "server": "server/h2_server.cpp, net_linux.cpp, net_windows.cpp, main.cpp (the transport, one thread per server CPU); arm_p.cpp, requests.cpp (arms P and Q); arm_r.cpp (arm R, reflection)"
   },
   "linux": {
     "portable": {

@@ -3,7 +3,7 @@
 //
 // The end-to-end benchmark server: one binary, the arm chosen at run time (design note section 3).
 //
-// Usage: tep_server --arm R|P|S [--port N] [--cpus C[,C...]] [--max-streams N]
+// Usage: tep_server --arm R|P|Q|S [--port N] [--cpus C[,C...]] [--max-streams N]
 //   --cpus   one worker thread per CPU, pinned to it (the lab's server cores); default one unpinned
 // It prints one line when it listens, and exits cleanly on SIGTERM or SIGINT (Linux), or on a
 // console Ctrl+C, Ctrl+Break or close event (Windows, which raises no SIGTERM).
@@ -67,7 +67,7 @@ struct finish_on_exit {
 #endif
 
 int usage() {
-    std::fprintf(stderr, "usage: tep_server --arm R|P|S [--port N] [--cpus C[,C...]] [--max-streams N]\n");
+    std::fprintf(stderr, "usage: tep_server --arm R|P|Q|S [--port N] [--cpus C[,C...]] [--max-streams N]\n");
     return 2;
 }
 
@@ -121,6 +121,13 @@ int main(int argc, char** argv) {
         options.make_arm = e2e::make_protoc_arm;
 #else
         std::fprintf(stderr, "tep_server: arm P is not built (transport-only build)\n");
+        return 2;
+#endif
+    } else if (arm == "Q") {
+#if TEP_E2E_ARM_P
+        options.make_arm = e2e::make_protoc_reuse_arm;
+#else
+        std::fprintf(stderr, "tep_server: arm Q is not built (transport-only build)\n");
         return 2;
 #endif
     } else if (arm == "S") {

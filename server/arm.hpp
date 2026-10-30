@@ -32,8 +32,12 @@ public:
 // R: messages and endpoint synthesized from e2e.proto by C++26 reflection (tep).
 std::unique_ptr<arm> make_reflection_arm();
 
-// P: protoc-generated classes and libprotobuf, with a route table of the same shape.
+// P: protoc-generated classes and libprotobuf, with a route table of the same shape; one Arena per
+// request.
 std::unique_ptr<arm> make_protoc_arm();
+
+// Q: as P, with reused non-arena messages instead of the arena (arm_p.cpp).
+std::unique_ptr<arm> make_protoc_reuse_arm();
 
 // S: no codec; the response is the request's bytes (arm_s.cpp). The transport's test arm and its
 // lower bound.

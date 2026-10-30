@@ -33,14 +33,13 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   options of each level (allow-lists), services with unary rpcs. Unknown and custom options are
   refused (custom options need an import). Refused with a diagnostic: map, oneof, `optional`, `required`, groups, extensions,
   import, editions, streaming, recursive messages, `[default]`, `message_set_wire_format`.
-- End-to-end (087812c, `server/`, `TEP_E2E`): arms R and P of an echo service (Person 34 bytes,
-  Order 953 bytes) behind one interface, byte-identical (`test_arms`); `tep_server --arm R|P`,
-  HTTP/2 on the pinned libnghttp2 1.70.0 (`bench/build_nghttp2.sh`), one pinned worker per CPU,
-  epoll on Linux, WSAPoll on Windows (`test_server`, loopback). P: one Arena per request on a reused
-  64 KiB block. Q1 to Q4 answered by Alex 2026-10-30 (`design/revision-log.md`): h2load on Linux,
-  ghz on Windows; P's arena; MinGW first, else a declared gap. 19/19 in `linux-gcc1620-e2e` (ASan,
-  protobuf with the same flags), `-e2e-release`, and `mingw-gcc1620-e2e-release` (MinGW abseil,
-  protobuf, nghttp2 unpatched, `bench/build_protobuf_mingw.sh`; libstdc++ dynamic, finding F4).
+- End-to-end (`server/`, `TEP_E2E`): arms R, P, Q and S of an echo service (Person 34 bytes, Order
+  953 bytes) behind one interface, R, P and Q byte-identical (`test_arms`); `tep_server --arm
+  R|P|Q|S`, HTTP/2 on the pinned libnghttp2 1.70.0, one pinned worker per CPU, epoll on Linux,
+  WSAPoll on Windows. P: one Arena per request on a reused 64 KiB block. Q (Alex, 2026-10-30):
+  protobuf with reused non-arena messages, per its C++ tutorial's optimization tips. R: the
+  endpoint keeps one request and one response per rpc (`parse_from`, `clear`), under Q2. Q and R
+  drop reused messages after a call over 64 KiB. MinGW: libstdc++ dynamic (finding F4).
 - Related-work survey (858a9b6): `design/related-work-survey.md` (5 claims still unverified). The gap held.
 - Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
@@ -49,16 +48,17 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   `tools/build_interop.sh` from the module cache (`C:\Users\alext\opt\_dl\p5-go-modcache`, 117 MB);
   `test_interop` (`-DTEP_INTEROP_BIN`, `-DTEP_GHZ`): grpc-go client and ghz against R and P, tep
   against the grpc-go server; each side checks every field. Passes on Linux (Release, ASan), MinGW.
-- Decoding: up to 16 fields compare inline, larger messages dispatch through field-number tables
-  (613d6fb, 1e4b25d). Repeated fields reserve for the elements that arrive together and grow
-  geometrically otherwise (`test_growth`; the old exact reserve per packed chunk was quadratic).
-  Unmeasured: nested sizes are recomputed while writing. R loses many from 2048 (A29): it emits
-  decode code per field, protoc parses from tables. Rejected on a size proxy, not timed: table
-  dispatch in invoke (.text +4.5%), out-of-line slow paths (+4 to 5%). The compile trade-off
-  question waits for the medium runtime gap (A31) to be understood.
-- Heap allocations per call (`test_allocs`, a count): small 0 for S, R, P; medium S 0, P 32 (its
-  16 long strings, parsed and copied; arena strings keep heap buffers), R 93, 62 after the growth
-  fix. R's extra 30, by code reading: 14 vectors and the boxed customer, per parse and per copy.
+- Decoding: up to 16 fields compare inline, larger messages through field-number tables. Repeated
+  fields reserve for elements that arrive together, else grow geometrically (`test_growth`). Nested
+  sizes are recomputed while writing (unmeasured). R loses many from 2048 (A29): per-field decode
+  code against protoc's tables; two size-proxy fixes rejected (+4 to 5% .text).
+- Heap allocations per call (`test_allocs`, a count, identical requests): small 0 for every arm;
+  medium S 0, P 32 (arena strings keep heap buffers), Q 0 (protobuf's cleared repeated fields
+  keep their elements), R 93, then 62 (growth fix), then 27 (reuse: the copy into the cleared
+  response builds 12 items, the customer and one long label; a std::vector cannot keep cleared
+  elements). Reuse: `parse_from` gives decode's result (fuzzed, split inputs), retained storage
+  within twice the last messages' (slack rule), slots taken out per call (re-entry safe).
+  Size proxy, not timed (60eff0e to reuse): .text many 1024 +15.2%, wide 1024 +2.4%.
 - Constant-evaluation budget: GCC 16's default `-fconstexpr-ops-limit` is 33,554,432 operations
   per outermost evaluation (every expression node counts; a variable template forced early gets
   its own counter, so define_messages forces the tables). `bench/constexpr_ops.sh` bisects it
@@ -77,9 +77,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   each of the four toolchains above `-v D:\Dev\toolchains\<name>-linux[-asan]:/home/dev/opt/<name>[-asan]:ro`,
   `-w <repo> papers-dev:arch-2026-10-23 bash tools/dev_linux_all.sh <presets>` (`MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results (pass or fail only), with interop: `linux-gcc1620-{e2e,e2e-release}` 23 of 23 (`allocs`
-  Skipped under ASan), `mingw-gcc1620-e2e-release` 22 of 22 (`allocs` Linux only), `msvc-e2e-asan`
-  9 of 9 (transport only). At 91dbece `msvc-{debug,asan}` 8 of 8 portable.
+- Results (pass or fail only), reuse and arm Q, with interop: `linux-gcc1620-{e2e,e2e-release}` 23
+  of 23 (`allocs` Skipped under ASan), `mingw-gcc1620-e2e-release` 22 of 22, `fuzz_decode` 300,000
+  mutations under ASan+UBSan; `msvc-e2e-asan` 9 of 9 at 60eff0e (transport only).
 - Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
   the encoder matches them byte for byte for all scalar types, enums, nested and repeated fields.
 - TSan: not run yet; the server has threads (`test_server`, two workers). Needs a TSan preset, a TSan
@@ -117,9 +117,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: R's medium gap (allocator): per-worker message reuse under Q2 ("reused buffers, and no
-      per-request heap allocation where possible"); type changes (pmr) or P's configuration stay
-      Alex's. Then the many-shape compile question; D5 records at the code freeze.
+- [ ] Next: Laptop request 9 (S, R, P, Q); then the many-shape compile question (with the reuse
+      size cost); D5 records at the code freeze. Type changes (pmr) and P's configuration: Alex's.
 
 ## Laptop requests
 
@@ -149,6 +148,7 @@ queue; design, scope and pushes still go to Alex.
    0.8% of A31. R/P from c12: small 1.03 to 1.08; medium 1.01 (m1), tie (m8), 0.92 to 0.96 from m32
    (R before P this time). R medium +14.7% over A31. perf (cycles:u, c12 m128): libc 22.5% of R's
    cycles against 9.0% of P's on medium, 5.7 against 4.8% on small: the gap is R's heap allocations.
+9. Ready: `bench/requests/e2e-pilot-3.md`, arms S, R, P, Q (R with reuse; Q per Alex).
 
 ## Lab requests
 

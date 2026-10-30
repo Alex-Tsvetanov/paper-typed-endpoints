@@ -87,3 +87,19 @@ Decided by this session (no new question: it carries out decision 4 of 2026-10-2
   and must report every call OK. ghz still also serves the one cross-check of decision 4.
 - Functional and untimed, so it runs on the desktop (`server/test_interop.cpp`, CTest `interop`
   with `-DTEP_INTEROP_BIN` and `-DTEP_GHZ`).
+
+## 2026-10-30. Message reuse in R, and a second protobuf arm
+
+- R's medium gap (A33's profile: libc 22.5% of R's cycles against 9.0% of P's) is engineered under
+  Q2 as answered ("reused buffers, and no per-request heap allocation where possible"): the
+  endpoint keeps one request and one response per rpc, decodes with `parse_from`, and resets the
+  response with `clear` (decision notice to the coordinator; no new question).
+- Decided by Alex (AskUserQuestion through the coordinator, 2026-10-30); his pick verbatim: "Add a
+  P-with-reuse arm (Recommended)", the option "Keep P with an Arena per request, and add P with
+  message reuse as a second protobuf arm, so R's reuse is compared with protobuf's own reuse.
+  Same cost per window; closes the D2 fairness objection." Arm Q (`server/arm_p.cpp`) follows
+  protobuf's C++ tutorial, Optimization Tips: "Reuse non-arena message objects when possible.
+  Messages try to keep around any memory they allocate for reuse, even when they are cleared."
+  The same tips advise deleting messages that grow too big; Q and R both drop their reused
+  messages after a call larger than 64 KiB (wire size, since `SpaceUsed` walks the message by
+  reflection on every call). Pilots from now on run S, R, P and Q.
