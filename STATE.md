@@ -33,10 +33,12 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   options of each level (allow-lists), services with unary rpcs. Unknown and custom options are
   refused (custom options need an import). Refused with a diagnostic: map, oneof, `optional`, `required`, groups, extensions,
   import, editions, streaming, recursive messages, `[default]`, `message_set_wire_format`.
-- Not yet written: HTTP/2 transport (libnghttp2), the benchmark server with runtime arm
-  selection, grpc-go interop programs, and the related-work survey (the brief puts it first;
-  Sonnet gathers, Opus re-checks every claim). The protoc arm's compile side exists
-  (`bench/build_protobuf.sh`, `bench/compile_curve.py`).
+- End-to-end (087812c, `server/`, `TEP_E2E`): arms R and P of an echo service (Person 34 bytes,
+  Order 953 bytes) behind one interface, byte-identical (`test_arms`); `tep_server --arm R|P`,
+  HTTP/2 on libnghttp2 1.70 (the image's), one pinned epoll worker per CPU (`test_server`, loopback).
+  Presets `linux-gcc1620-e2e` (ASan, protobuf built with the same flags) and `-e2e-release`: 19/19.
+  Not yet: Windows transport, grpc-go interop, load generator (Q1 to Q4 sent 2026-10-30, open).
+- Related-work survey: Sonnet gathering into `design/related-work-survey.md`; Opus checks next.
 - Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
   libFuzzer executables (desktop: 10 minutes each, no failure).
@@ -114,7 +116,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
       push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
       Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
-- [ ] Next: transport (nghttp2), the benchmark server, interop, the related-work survey.
+- [ ] Next: answers to Q1 to Q4; interop with grpc-go; the Windows transport; the survey check.
 
 ## Laptop requests
 
