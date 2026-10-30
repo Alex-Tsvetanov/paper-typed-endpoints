@@ -134,14 +134,14 @@
     {
       "name": "msvc-e2e-asan",
       "inherits": "base",
-      "displayName": "MSVC with ASan, RelWithDebInfo without incremental linking, the transport and arm P (no P2996, so no arm R) on MSVC ASan builds of abseil, protobuf and libnghttp2 under %USERPROFILE%/opt (bench/build_deps_msvc.sh explains why not Debug)",
+      "displayName": "MSVC with ASan, RelWithDebInfo without incremental linking: the transport with arm S only (MSVC ASan cannot start protoc's generated code; Alex, 2026-10-31), on an MSVC ASan libnghttp2 under %USERPROFILE%/opt (bench/build_deps_msvc.sh)",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "cl",
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CMAKE_CXX_FLAGS": "/fsanitize=address /EHsc",
         "CMAKE_EXE_LINKER_FLAGS_RELWITHDEBINFO": "/debug /INCREMENTAL:NO",
         "TEP_E2E": "ON",
-        "TEP_PROTOBUF_ROOT": "$env{USERPROFILE}/opt/protobuf-36.2-msvc-asan",
+        "TEP_E2E_TRANSPORT_ONLY": "ON",
         "TEP_NGHTTP2_ROOT": "$env{USERPROFILE}/opt/nghttp2-1.70.0-msvc-asan"
       }
     },

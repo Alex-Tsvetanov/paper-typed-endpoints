@@ -17,6 +17,7 @@ option(TEP_BUILD_TESTS "Build the functional tests" ON)
 option(TEP_WERROR "Treat warnings as errors" ON)
 option(TEP_FUZZ "Also build the fuzz targets as libFuzzer executables (clang only)" OFF)
 option(TEP_E2E "Build the end-to-end arms (needs the reflection layer and the pinned protobuf)" OFF)
+option(TEP_E2E_TRANSPORT_ONLY "With TEP_E2E: the transport and arm S only, no protobuf (the MSVC ASan record)" OFF)
 set(TEP_PROTOBUF_ROOT "" CACHE PATH "Install prefix of the pinned protobuf (bench/build_protobuf.sh)")
 set(TEP_NGHTTP2_ROOT "" CACHE PATH "Install prefix of the pinned libnghttp2 (bench/build_nghttp2.sh); empty: pkg-config (Linux)")
 

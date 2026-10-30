@@ -3,7 +3,7 @@
 //
 // The end-to-end benchmark server: one binary, the arm chosen at run time (design note section 3).
 //
-// Usage: tep_server --arm R|P [--port N] [--cpus C[,C...]] [--max-streams N]
+// Usage: tep_server --arm R|P|S [--port N] [--cpus C[,C...]] [--max-streams N]
 //   --cpus   one worker thread per CPU, pinned to it (the lab's server cores); default one unpinned
 // It prints one line when it listens, and exits cleanly on SIGTERM or SIGINT (Linux), or on a
 // console Ctrl+C, Ctrl+Break or close event (Windows, which raises no SIGTERM).
@@ -19,6 +19,8 @@
 
 #include <atomic>
 #include <csignal>
+#include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -65,7 +67,7 @@ struct finish_on_exit {
 #endif
 
 int usage() {
-    std::fprintf(stderr, "usage: tep_server --arm R|P [--port N] [--cpus C[,C...]] [--max-streams N]\n");
+    std::fprintf(stderr, "usage: tep_server --arm R|P|S [--port N] [--cpus C[,C...]] [--max-streams N]\n");
     return 2;
 }
 
@@ -115,7 +117,14 @@ int main(int argc, char** argv) {
         return 2;
 #endif
     } else if (arm == "P") {
+#if TEP_E2E_ARM_P
         options.make_arm = e2e::make_protoc_arm;
+#else
+        std::fprintf(stderr, "tep_server: arm P is not built (transport-only build)\n");
+        return 2;
+#endif
+    } else if (arm == "S") {
+        options.make_arm = e2e::make_stub_arm;
     } else {
         return usage();
     }
@@ -148,6 +157,17 @@ int main(int argc, char** argv) {
                     static_cast<unsigned>(s.port()), options.cpus.empty() ? std::size_t{1} : options.cpus.size());
         std::fflush(stdout);
         s.run();
+        // One line on exit: the load generator sees HTTP status 200 on every gRPC response, so the
+        // grpc-status counts are what show that a run had no failed calls.
+        const auto calls = s.calls();
+        std::uint64_t failed = 0;
+        for (std::size_t code = 1; code < calls.size(); ++code) failed += calls[code];
+        std::printf("tep_server: calls ok %llu, failed %llu", static_cast<unsigned long long>(calls[0]),
+                    static_cast<unsigned long long>(failed));
+        for (std::size_t code = 1; code < calls.size(); ++code)
+            if (calls[code] != 0)
+                std::printf(", grpc-status %zu: %llu", code, static_cast<unsigned long long>(calls[code]));
+        std::printf("\n");
     } catch (const std::exception& e) {
         std::fprintf(stderr, "tep_server: %s\n", e.what());
         return 1;

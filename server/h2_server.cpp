@@ -152,6 +152,9 @@ public:
 
     void run(bool accepts);
 
+    // Written by this worker's thread only; read after it has been joined.
+    [[nodiscard]] const server::call_counts& calls() const noexcept { return calls_; }
+
     // The response to a complete request: the arm's message with grpc-status 0 in trailers, or a
     // trailers-only response with the error's grpc-status.
     int respond(connection& c, stream& s) {
@@ -170,6 +173,7 @@ public:
                 st = arm_->call(s.path, frame->payload, s.response);
             }
         }
+        ++calls_[static_cast<std::size_t>(st)];
         if (st == status::ok) {
             const nghttp2_nv headers[] = {header(":status", "200"), header("content-type", "application/grpc")};
             nghttp2_data_provider2 data{};
@@ -201,6 +205,7 @@ private:
     std::vector<std::unique_ptr<connection>> connections_;
     std::vector<connection*> marked_;
     std::size_t next_ = 0;
+    server::call_counts calls_{};
     std::array<std::byte, read_chunk> buffer_{};
 };
 
@@ -437,6 +442,13 @@ void server::run() {
         });
     }
     for (std::thread& t : threads) t.join();
+}
+
+server::call_counts server::calls() const {
+    call_counts sum{};
+    for (const auto& w : state_->workers)
+        for (std::size_t i = 0; i < sum.size(); ++i) sum[i] += w->calls()[i];
+    return sum;
 }
 
 void server::stop() noexcept {

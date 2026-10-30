@@ -38,7 +38,9 @@
 #include "arm.hpp"
 #include "check.hpp"
 #include "h2_server.hpp"
+#if TEP_E2E_ARM_P
 #include "requests.hpp"
+#endif
 
 namespace {
 
@@ -191,9 +193,19 @@ private:
     nghttp2_session* session_ = nullptr;
 };
 
+// The benchmark's request messages; without protobuf (a transport-only build) bytes of the same
+// sizes, which only arm S serves.
+#if TEP_E2E_ARM_P
+std::string small_message() { return e2e::small_request(); }
+std::string medium_message() { return e2e::medium_request(); }
+#else
+std::string small_message() { return std::string(34, 's'); }
+std::string medium_message() { return std::string(953, 'm'); }
+#endif
+
 std::vector<call> make_calls() {
-    const std::string small = e2e::small_request();
-    const std::string medium = e2e::medium_request();
+    const std::string small = small_message();
+    const std::string medium = medium_message();
     std::vector<call> calls;
     for (int i = 0; i < 50; ++i) calls.emplace_back("/bench.e2e.Echo/EchoPerson", framed(small));
     for (int i = 0; i < 10; ++i) calls.emplace_back("/bench.e2e.Echo/EchoOrder", framed(medium));
@@ -237,6 +249,12 @@ void exercise(const char* name, std::unique_ptr<e2e::arm> (*make)(), std::vector
 
     s.stop();
     serving.join();
+    // The server's own counts agree: per connection 60 ok, one unimplemented, one internal.
+    const auto counted = s.calls();
+    const auto n = static_cast<std::uint64_t>(connections);
+    std::uint64_t total = 0;
+    for (const std::uint64_t c : counted) total += c;
+    TEP_CHECK(counted[0] == 60 * n && counted[12] == n && counted[13] == n && total == 62 * n);
 }
 
 }  // namespace
@@ -246,7 +264,11 @@ int main() {
     exercise("arm R", e2e::make_reflection_arm, {}, 1);
     exercise("arm R, 2 workers", e2e::make_reflection_arm, {0, 1}, 4);
 #endif
+#if TEP_E2E_ARM_P
     exercise("arm P", e2e::make_protoc_arm, {}, 1);
     exercise("arm P, 2 workers", e2e::make_protoc_arm, {0, 1}, 4);
+#endif
+    exercise("arm S", e2e::make_stub_arm, {}, 1);
+    exercise("arm S, 2 workers", e2e::make_stub_arm, {0, 1}, 4);
     return tep_test::finish("test_server");
 }

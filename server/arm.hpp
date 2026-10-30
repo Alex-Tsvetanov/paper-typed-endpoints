@@ -35,4 +35,8 @@ std::unique_ptr<arm> make_reflection_arm();
 // P: protoc-generated classes and libprotobuf, with a route table of the same shape.
 std::unique_ptr<arm> make_protoc_arm();
 
+// S: no codec; the response is the request's bytes (arm_s.cpp). The transport's test arm and its
+// lower bound.
+std::unique_ptr<arm> make_stub_arm();
+
 }  // namespace e2e

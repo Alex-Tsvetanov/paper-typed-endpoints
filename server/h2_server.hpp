@@ -7,6 +7,7 @@
 // so every worker serves an equal share of them. The same transport serves both arms.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -37,6 +38,11 @@ public:
     void run();
     // From any thread or from a signal handler.
     void stop() noexcept;
+
+    // Calls answered, by grpc-status code (the index), summed over the workers. Read it after run()
+    // has returned; a load generator counts HTTP responses only, and these say which were errors.
+    using call_counts = std::array<std::uint64_t, 17>;
+    [[nodiscard]] call_counts calls() const;
 
 private:
     std::unique_ptr<server_state> state_;
