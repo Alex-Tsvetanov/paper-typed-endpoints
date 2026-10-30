@@ -32,6 +32,16 @@ function(tep_test_target target)
   endif()
 endfunction()
 
+# A test that counts allocations through a replaced operator new: GCC 15 and later may otherwise
+# assume operator new has no visible side effects and fold the counter's reads.
+include(CheckCXXCompilerFlag)
+check_cxx_compiler_flag(-fno-assume-sane-operators-new-delete TEP_HAVE_NO_SANE_NEW)
+function(tep_counting_new target)
+  if(TEP_HAVE_NO_SANE_NEW)
+    target_compile_options(${target} PRIVATE -fno-assume-sane-operators-new-delete)
+  endif()
+endfunction()
+
 foreach(name schema wire grpc)
   add_executable(test_${name} test_${name}.cpp)
   target_link_libraries(test_${name} PRIVATE tep)
@@ -46,6 +56,7 @@ if(TEP_HAVE_REFLECTION)
     tep_test_target(test_${name})
     add_test(NAME ${name} COMMAND test_${name})
   endforeach()
+  tep_counting_new(test_growth)
 
   # Compile-fail checks: each target must fail to build with the expected diagnostic.
   function(tep_negative name library regex)

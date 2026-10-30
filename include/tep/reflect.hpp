@@ -829,17 +829,25 @@ constexpr void reserve_more(V& v, std::size_t extra) {
     if (v.capacity() - v.size() < extra) v.reserve(std::max(v.size() + extra, 2 * v.capacity()));
 }
 
+// A reservation made from a look ahead covers elements not yet decoded, so it is capped: a run
+// whose first element fails must not reserve for the whole input. Beyond the cap the vector
+// grows geometrically as it decodes.
+inline constexpr std::size_t max_hint_bytes = 64 * 1024;
+
+template <class V>
+inline constexpr std::size_t max_hint = std::max<std::size_t>(1, max_hint_bytes / sizeof(typename V::value_type));
+
 // The elements of the repeated length-delimited field F that directly follow in r, each under
-// F's tag. Serializers write a repeated field's elements together, so reserving for them takes
-// one allocation instead of the vector's growth. A stop at anything else only makes the
-// reservation smaller; every element is still checked when it is decoded.
+// F's tag, at most `limit`. Serializers write a repeated field's elements together, so reserving
+// for them takes one allocation instead of the vector's growth. A stop at anything else only
+// makes the reservation smaller; every element is still checked when it is decoded.
 template <field_meta F>
-constexpr std::size_t following_elements(wire::reader r) noexcept {
+constexpr std::size_t following_elements(wire::reader r, std::size_t limit) noexcept {
     std::size_t n = 0;
     std::uint64_t tag = 0;
     std::span<const std::byte> s;
     wire::read_error re{};
-    while (!r.done() && r.varint(tag, re) && tag == tag_of<F> && r.length_delimited(s, re)) ++n;
+    while (n < limit && !r.done() && r.varint(tag, re) && tag == tag_of<F> && r.length_delimited(s, re)) ++n;
     return n;
 }
 
@@ -854,7 +862,7 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
         std::span<const std::byte> s;
         if (!r.length_delimited(s, re)) return err = from_read(re), false;
         if constexpr (F.repeated) {
-            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r));
+            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
             v.emplace_back();
             return merge_from(v.back(), wire::reader(s), err);
         } else {
@@ -879,7 +887,7 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
                         // malformed input fails below.
                         std::size_t n = 0;
                         for (const std::byte b : s) n += (std::to_integer<unsigned>(b) & 0x80u) == 0 ? 1u : 0u;
-                        reserve_more(v, n);
+                        reserve_more(v, std::min(n, max_hint<V>));
                     }
                     wire::reader sub(s);
                     while (!sub.done()) {
@@ -894,7 +902,7 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
             E e{};
             if (!read_value<S>(r, e, err)) return false;
             if constexpr (ewt == wire::wire_type::len) {  // strings and bytes
-                if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r));
+                if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
             }
             v.push_back(std::move(e));
             return true;

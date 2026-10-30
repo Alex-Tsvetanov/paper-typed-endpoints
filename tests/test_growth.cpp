@@ -4,8 +4,9 @@
 // How repeated fields grow while decoding, counted by replacing the global operator new. Elements
 // of a repeated field that arrive together take one allocation; elements that arrive in many
 // pieces (packed chunks, or interleaved with another field) grow the vector geometrically, so
-// decoding stays linear in the input. Only vectors of trivially copyable elements and short
-// strings appear, so every allocation counted is a vector's.
+// decoding stays linear in the input; and a reservation made by looking ahead is capped, so a run
+// whose first element fails reserves little. Only vectors of trivially copyable elements and
+// short strings appear, so every allocation counted is a vector's.
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -19,11 +20,13 @@
 namespace {
 
 std::size_t allocations = 0;
+std::size_t allocated_bytes = 0;
 
 }  // namespace
 
 void* operator new(std::size_t n) {
     ++allocations;
+    allocated_bytes += n;
     void* p = std::malloc(n == 0 ? 1 : n);
     if (p == nullptr) throw std::bad_alloc();
     return p;
@@ -59,6 +62,10 @@ void fixed_chunk(std::vector<std::byte>& out, int i) { put(out, {0x0A, 4, i & 0x
 void varint_chunk(std::vector<std::byte>& out, int i) { put(out, {0x12, 1, i & 0x7F}); }
 void item(std::vector<std::byte>& out, int i) { put(out, {0x1A, 2, 0x08, i & 0x7F}); }
 void short_string(std::vector<std::byte>& out) { put(out, {0x22, 1, 'a'}); }
+void varint(std::vector<std::byte>& out, std::size_t v) {
+    for (; v >= 0x80; v >>= 7) out.push_back(static_cast<std::byte>((v & 0x7F) | 0x80));
+    out.push_back(static_cast<std::byte>(v));
+}
 
 // Decodes `in` and returns the number of allocations it took; the result is checked by `check`.
 template <class Check>
@@ -88,7 +95,9 @@ void test_together_is_one_allocation() {
 }
 
 // 1000 elements in pieces: geometric growth takes about log2(1000) = 10 allocations per vector,
-// an exact reservation per piece would take 1000.
+// an exact reservation per piece would take 1000. Only the fixed-width chunks failed this before
+// the reservations were made geometric; the other two cases guard against an exact reservation
+// being added later.
 constexpr int pieces = 1000;
 constexpr std::size_t geometric_bound = 16;
 
@@ -113,10 +122,56 @@ void test_pieces_grow_geometrically() {
               }) <= 2 * geometric_bound);
 }
 
+// Decodes `in`, which must fail with `want`, and returns the bytes allocated meanwhile.
+std::size_t failing_bytes(const std::vector<std::byte>& in, tep::decode_error want) {
+    const std::size_t before = allocated_bytes;
+    const auto bag = tep::decode<Bag>(in);
+    const std::size_t n = allocated_bytes - before;
+    TEP_CHECK(!bag.has_value() && bag.error() == want);
+    return n;
+}
+
+// Inputs that fail inside a run: the right error, and no reservation for the rest of the run
+// beyond the cap (100,000 empty elements would take 400 KB of Leaf, 3.2 MB of strings).
+void test_malformed_runs() {
+    constexpr int run = 100000;
+    constexpr std::size_t cap = 2 * tep::detail::max_hint_bytes;
+
+    std::vector<std::byte> first_item_fails;
+    put(first_item_fails, {0x1A, 2, 0x08, 0x80});  // a Leaf whose varint is cut off
+    for (int i = 0; i < run; ++i) put(first_item_fails, {0x1A, 0});
+    TEP_CHECK(failing_bytes(first_item_fails, tep::decode_error::truncated) <= cap);
+
+    std::vector<std::byte> second_string_fails;
+    short_string(second_string_fails);
+    put(second_string_fails, {0x22, 1, 0xFF});  // not UTF-8
+    for (int i = 0; i < run; ++i) put(second_string_fails, {0x22, 0});
+    TEP_CHECK(failing_bytes(second_string_fails, tep::decode_error::invalid_utf8) <= cap);
+
+    std::vector<std::byte> bad_packed_varint;
+    put(bad_packed_varint, {0x12});
+    varint(bad_packed_varint, 10 + run);
+    for (int i = 0; i < 10; ++i) put(bad_packed_varint, {0xFF});  // eleven bytes long
+    for (int i = 0; i < run; ++i) put(bad_packed_varint, {0});
+    TEP_CHECK(failing_bytes(bad_packed_varint, tep::decode_error::malformed_varint) <= cap);
+
+    // A six-byte tag of the same field inside a run: the look ahead counts it, decoding refuses it.
+    std::vector<std::byte> long_tag;
+    item(long_tag, 1);
+    put(long_tag, {0x9A, 0x80, 0x80, 0x80, 0x80, 0x00, 2, 0x08, 2});
+    failing_bytes(long_tag, tep::decode_error::bad_tag);
+
+    std::vector<std::byte> last_item_cut;
+    item(last_item_cut, 1);
+    put(last_item_cut, {0x1A, 5, 0x08});
+    failing_bytes(last_item_cut, tep::decode_error::truncated);
+}
+
 }  // namespace
 
 int main() {
     test_together_is_one_allocation();
     test_pieces_grow_geometrically();
+    test_malformed_runs();
     return tep_test::finish("test_growth");
 }
