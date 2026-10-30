@@ -851,86 +851,209 @@ constexpr std::size_t following_elements(wire::reader r, std::size_t limit) noex
     return n;
 }
 
-// One occurrence of a known field. A wire type that does not match the field is handled as an
-// unknown field (skipped), as libprotobuf does. Repeated numeric fields accept both the packed
-// and the unpacked encoding.
+// One occurrence of a known scalar or enum field; repeated messages, strings and bytes, and
+// singular messages, are read by read_member, which can reuse their storage. A wire type that
+// does not match the field is handled as an unknown field (skipped), as libprotobuf does.
+// Repeated numeric fields accept both the packed and the unpacked encoding.
 template <field_meta F, class V>
 constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_error& err) {
     wire::read_error re{};
-    if constexpr (F.kind == schema::field_kind::message) {
-        if (wt != wire::wire_type::len) return r.skip(wt, F.number, re) || (err = from_read(re), false);
-        std::span<const std::byte> s;
-        if (!r.length_delimited(s, re)) return err = from_read(re), false;
-        if constexpr (F.repeated) {
-            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
-            v.emplace_back();
-            return merge_from(v.back(), wire::reader(s), err);
-        } else {
-            if (!v.has_value()) v.emplace();
-            return merge_from(*v, wire::reader(s), err);
-        }
-    } else {
-        constexpr auto S = effective(F);
-        constexpr auto ewt = wire_of(S);
-        if constexpr (F.repeated) {
-            using E = typename V::value_type;
-            if constexpr (schema::is_packable(S)) {
-                if (wt == wire::wire_type::len) {
-                    std::span<const std::byte> s;
-                    if (!r.length_delimited(s, re)) return err = from_read(re), false;
-                    if constexpr (ewt == wire::wire_type::i32 || ewt == wire::wire_type::i64) {
-                        constexpr std::size_t width = ewt == wire::wire_type::i32 ? 4 : 8;
-                        if (s.size() % width != 0) return err = decode_error::truncated, false;
-                        reserve_more(v, s.size() / width);
-                    } else {
-                        // One varint ends at each byte below 0x80: exact for valid input, and
-                        // malformed input fails below.
-                        std::size_t n = 0;
-                        for (const std::byte b : s) n += (std::to_integer<unsigned>(b) & 0x80u) == 0 ? 1u : 0u;
-                        reserve_more(v, std::min(n, max_hint<V>));
-                    }
-                    wire::reader sub(s);
-                    while (!sub.done()) {
-                        E e{};
-                        if (!read_value<S>(sub, e, err)) return false;
-                        v.push_back(e);
-                    }
-                    return true;
+    constexpr auto S = effective(F);
+    constexpr auto ewt = wire_of(S);
+    if constexpr (F.repeated) {
+        using E = typename V::value_type;
+        if constexpr (schema::is_packable(S)) {
+            if (wt == wire::wire_type::len) {
+                std::span<const std::byte> s;
+                if (!r.length_delimited(s, re)) return err = from_read(re), false;
+                if constexpr (ewt == wire::wire_type::i32 || ewt == wire::wire_type::i64) {
+                    constexpr std::size_t width = ewt == wire::wire_type::i32 ? 4 : 8;
+                    if (s.size() % width != 0) return err = decode_error::truncated, false;
+                    reserve_more(v, s.size() / width);
+                } else {
+                    // One varint ends at each byte below 0x80: exact for valid input, and
+                    // malformed input fails below.
+                    std::size_t n = 0;
+                    for (const std::byte b : s) n += (std::to_integer<unsigned>(b) & 0x80u) == 0 ? 1u : 0u;
+                    reserve_more(v, std::min(n, max_hint<V>));
                 }
+                wire::reader sub(s);
+                while (!sub.done()) {
+                    E e{};
+                    if (!read_value<S>(sub, e, err)) return false;
+                    v.push_back(e);
+                }
+                return true;
             }
-            if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
-            E e{};
-            if (!read_value<S>(r, e, err)) return false;
-            if constexpr (ewt == wire::wire_type::len) {  // strings and bytes
-                if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
-            }
-            v.push_back(std::move(e));
-            return true;
-        } else {
-            if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
-            return read_value<S>(r, v, err);
         }
+        if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
+        E e{};
+        if (!read_value<S>(r, e, err)) return false;
+        v.push_back(std::move(e));
+        return true;
+    } else {
+        if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
+        return read_value<S>(r, v, err);
     }
 }
 
 // Decoding dispatches on the field number in one of two ways. A message with at most
-// inline_dispatch_fields fields compares the number with each field inside merge_from. A larger
-// message dispatches through tables, with each field's decoder a function of its own: comparisons
-// make decoding quadratic in the field count and merge_from as large as the message for the
-// optimizer, while the tables cost a function per field and two static arrays per message, which
-// made compiling many small messages slower in the pilot (Laptop request 6). The threshold is a
-// design choice, not a measured crossover: the many shape (8 fields per message) and the
+// inline_dispatch_fields fields compares the number with each field inside parse_message. A
+// larger message dispatches through tables, with each field's decoder a function of its own:
+// comparisons make decoding quadratic in the field count and parse_message as large as the message
+// for the optimizer, while the tables cost a function per field and two static arrays per message,
+// which made compiling many small messages slower in the pilot (Laptop request 6). The threshold
+// is a design choice, not a measured crossover: the many shape (8 fields per message) and the
 // end-to-end messages compare; the wide shape compares at 16 fields and uses tables from 32.
 inline constexpr std::size_t inline_dispatch_fields = 16;
 
-template <class T, std::uint32_t K>
-constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_error& err) {
-    constexpr auto mem = members<T>[K];
-    return read_field<field_of<T, K>>(msg.[:mem:], r, wt, err);
+consteval std::vector<std::uint32_t> iota(std::uint32_t first, std::uint32_t count) {
+    std::vector<std::uint32_t> v(count);
+    for (std::uint32_t k = 0; k < count; ++k) v[k] = first + k;
+    return v;
+}
+
+// The members whose storage a parse in replace mode keeps, as member indices: first the counted
+// ones (repeated messages, strings and bytes, whose elements are overwritten in place in arrival
+// order), then the boxed ones (singular messages, whose storage is reused when the field arrives
+// again). Every other member is cleared at the start.
+template <class T>
+consteval std::vector<std::uint32_t> make_kept_members() {
+    std::vector<std::uint32_t> counted;
+    std::vector<std::uint32_t> boxed;
+    const auto& fields = tables<typename message_traits<T>::schema>.fields;
+    for (std::uint32_t k = 0; k < meta_of<T>().field_count; ++k) {
+        const field_meta& f = fields[meta_of<T>().first_field + k];
+        if (f.repeated && element_wire(f) == wire::wire_type::len) {
+            counted.push_back(k);
+        } else if (!f.repeated && f.kind == schema::field_kind::message) {
+            boxed.push_back(k);
+        }
+    }
+    counted.insert(counted.end(), boxed.begin(), boxed.end());
+    return counted;
 }
 
 template <class T>
-using member_reader = bool (*)(T&, wire::reader&, wire::wire_type, decode_error&);
+inline constexpr auto kept_members = std::define_static_array(make_kept_members<T>());
+
+template <class T>
+consteval std::size_t make_counted_count() {
+    const auto& fields = tables<typename message_traits<T>::schema>.fields;
+    std::size_t n = 0;
+    for (const std::uint32_t k : kept_members<T>) n += fields[meta_of<T>().first_field + k].repeated ? 1u : 0u;
+    return n;
+}
+
+template <class T>
+inline constexpr std::size_t counted_count = make_counted_count<T>();
+
+consteval std::size_t position_of(std::span<const std::uint32_t> in, std::uint32_t k) {
+    for (std::size_t i = 0; i < in.size(); ++i)
+        if (in[i] == k) return i;
+    fail("tep: internal error, member not kept");
+}
+
+inline constexpr std::size_t string_slack = 64;
+inline constexpr std::size_t vector_slack = 16;
+
+// Storage kept for reuse stays in proportion to the messages decoded: a string or vector whose
+// capacity passes twice its size plus `slack` gives the rest back, so a run of calls cannot ratchet
+// a reused message's memory up (each element keeping the largest value it ever held). These
+// helpers are out of line, one function per container type, so that parse_message, instantiated
+// for every message, stays small for the compiler.
+template <class C>
+[[gnu::noinline]] constexpr void shrink_if_slack(C& c, std::size_t slack) {
+    if (c.capacity() > 2 * c.size() + slack) c.shrink_to_fit();
+}
+
+// Empties c, then gives back capacity beyond twice its previous size plus `slack`.
+template <class C>
+[[gnu::noinline]] constexpr void clear_within_slack(C& c, std::size_t slack) {
+    const std::size_t before = c.size();
+    c.clear();
+    if (c.capacity() > 2 * before + slack) c.shrink_to_fit();
+}
+
+// Keeps the first `n` elements of c, within the slack.
+template <class C>
+[[gnu::noinline]] constexpr void truncate_within_slack(C& c, std::size_t n) {
+    if (n < c.size()) c.erase(c.begin() + static_cast<std::ptrdiff_t>(n), c.end());
+    if (c.capacity() > 2 * c.size() + vector_slack) c.shrink_to_fit();
+}
+
+template <class B>
+[[gnu::noinline]] constexpr void release_box(B& b) noexcept {
+    b.reset();
+}
+
+// One parse of one message in replace mode: per counted member, the elements filled so far; per
+// boxed member, whether the field has arrived (its first arrival replaces the kept message, later
+// ones merge, as in decode). Merge mode has none (a null pointer), so decoding a message with many
+// counted members costs nothing extra per arrival.
+template <class T>
+struct parse_state {
+    std::array<std::uint32_t, counted_count<T>> used;
+    std::array<bool, kept_members<T>.size() - counted_count<T>> seen;
+};
+
+template <synthesized_message T>
+constexpr bool parse_message(T& msg, wire::reader r, decode_error& err, bool replace);
+
+template <class T, std::uint32_t K>
+constexpr bool read_member(T& msg, wire::reader& r, wire::wire_type wt, decode_error& err, parse_state<T>* st) {
+    constexpr field_meta F = field_of<T, K>;
+    auto& v = msg.[:members<T>[K]:];
+    using V = std::remove_reference_t<decltype(v)>;
+    if constexpr (F.repeated && element_wire(F) == wire::wire_type::len) {
+        wire::read_error re{};
+        if (wt != wire::wire_type::len) return r.skip(wt, F.number, re) || (err = from_read(re), false);
+        if constexpr (F.kind == schema::field_kind::message) {
+            std::span<const std::byte> s;
+            if (!r.length_delimited(s, re)) return err = from_read(re), false;
+            if (st != nullptr) {
+                const std::uint32_t at = st->used[position_of(kept_members<T>, K)]++;
+                if (at < v.size()) return parse_message(v[at], wire::reader(s), err, true);
+            }
+            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
+            v.emplace_back();
+            return parse_message(v.back(), wire::reader(s), err, false);
+        } else {
+            constexpr auto S = effective(F);
+            if (st != nullptr) {
+                const std::uint32_t at = st->used[position_of(kept_members<T>, K)]++;
+                if (at < v.size()) {
+                    if (!read_value<S>(r, v[at], err)) return false;
+                    shrink_if_slack(v[at], string_slack);
+                    return true;
+                }
+            }
+            typename V::value_type e{};
+            if (!read_value<S>(r, e, err)) return false;
+            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r, max_hint<V> - 1));
+            v.push_back(std::move(e));
+            return true;
+        }
+    } else if constexpr (F.kind == schema::field_kind::message) {
+        wire::read_error re{};
+        if (wt != wire::wire_type::len) return r.skip(wt, F.number, re) || (err = from_read(re), false);
+        std::span<const std::byte> s;
+        if (!r.length_delimited(s, re)) return err = from_read(re), false;
+        bool replace = false;
+        if (st != nullptr) {
+            bool& seen = st->seen[position_of(kept_members<T>, K) - counted_count<T>];
+            replace = !seen;
+            seen = true;
+        }
+        if (!v.has_value()) v.emplace();
+        return parse_message(*v, wire::reader(s), err, replace);
+    } else {
+        return read_field<F>(v, r, wt, err);
+    }
+}
+
+template <class T>
+using member_reader = bool (*)(T&, wire::reader&, wire::wire_type, decode_error&, parse_state<T>*);
 
 template <class T>
 inline constexpr auto readers = []<std::size_t... K>(std::index_sequence<K...>) {
@@ -986,37 +1109,108 @@ constexpr std::uint32_t slot_of(std::uint32_t number) noexcept {
 
 }  // namespace detail
 
-// Merges the encoded message in r into msg: later singular values win, repeated values append,
-// singular messages merge. Unknown fields are skipped and dropped.
+namespace detail {
+
+// Resets members to their defaults. Strings and vectors keep their capacity unless it passes
+// twice their previous size plus the slack (shrink_if_slack). With Keep, the members a parse in
+// replace mode keeps (counted and boxed) are left as they are.
+template <bool Keep, class T>
+constexpr void clear_members(T& msg) {
+    template for (constexpr std::uint32_t k : order<T>) {
+        constexpr field_meta f = field_of<T, k>;
+        auto& v = msg.[:members<T>[k]:];
+        if constexpr (f.kind == schema::field_kind::message && !f.repeated) {
+            if constexpr (!Keep) release_box(v);
+        } else if constexpr (f.repeated && Keep && element_wire(f) == wire::wire_type::len) {
+            // kept: overwritten in place, then truncated
+        } else if constexpr (f.repeated || effective(f) == schema::scalar::string ||
+                             effective(f) == schema::scalar::bytes) {
+            clear_within_slack(v, f.repeated ? vector_slack : string_slack);
+        } else {
+            v = {};
+        }
+    }
+}
+
 template <synthesized_message T>
-constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
+constexpr bool parse_message(T& msg, wire::reader r, decode_error& err, bool replace) {
+    parse_state<T> state;
+    parse_state<T>* st = nullptr;
+    if (replace) {
+        state.used.fill(0);
+        state.seen.fill(false);
+        st = &state;
+        clear_members<true>(msg);
+    }
     while (!r.done()) {
         std::uint64_t tag = 0;
         wire::read_error re{};
         const std::byte* const tag_start = r.p;
-        if (!r.varint(tag, re)) return err = detail::from_read(re), false;
+        if (!r.varint(tag, re)) return err = from_read(re), false;
         // libprotobuf reads a tag as at most five bytes, with a field number of at least 1.
         if (tag > 0xFFFF'FFFFu || (tag >> 3) == 0 || r.p - tag_start > 5) return err = decode_error::bad_tag, false;
         const auto number = static_cast<std::uint32_t>(tag >> 3);
         const auto wt = static_cast<wire::wire_type>(tag & 7u);
-        if constexpr (detail::members<T>.size() <= detail::inline_dispatch_fields) {
+        if constexpr (members<T>.size() <= inline_dispatch_fields) {
             bool known = false;
-            template for (constexpr std::uint32_t k : detail::order<T>) {
-                constexpr field_meta f = detail::field_of<T, k>;
-                if (!known && number == f.number) {
+            template for (constexpr std::uint32_t k : order<T>) {
+                if (!known && number == field_of<T, k>.number) {
                     known = true;
-                    constexpr auto mem = detail::members<T>[k];
-                    if (!detail::read_field<f>(msg.[:mem:], r, wt, err)) return false;
+                    if (!read_member<T, k>(msg, r, wt, err, st)) return false;
                 }
             }
-            if (!known && !r.skip(wt, number, re)) return err = detail::from_read(re), false;
-        } else if (const std::uint32_t slot = detail::slot_of<T>(number); slot != 0) {
-            if (!detail::readers<T>[slot - 1](msg, r, wt, err)) return false;
+            if (!known && !r.skip(wt, number, re)) return err = from_read(re), false;
+        } else if (const std::uint32_t slot = slot_of<T>(number); slot != 0) {
+            if (!readers<T>[slot - 1](msg, r, wt, err, st)) return false;
         } else if (!r.skip(wt, number, re)) {
-            return err = detail::from_read(re), false;
+            return err = from_read(re), false;
+        }
+    }
+    if (replace) {
+        // Elements and nested messages kept from the previous message but absent from this one.
+        template for (constexpr std::uint32_t k : kept_members<T>) {
+            constexpr std::size_t at = position_of(kept_members<T>, k);
+            auto& v = msg.[:members<T>[k]:];
+            if constexpr (at < counted_count<T>) {
+                truncate_within_slack(v, state.used[at]);
+            } else {
+                if (!state.seen[at - counted_count<T>]) release_box(v);
+            }
         }
     }
     return true;
+}
+
+}  // namespace detail
+
+// Merges the encoded message in r into msg: later singular values win, repeated values append,
+// singular messages merge. Unknown fields are skipped and dropped.
+template <synthesized_message T>
+constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
+    return detail::parse_message(msg, r, err, false);
+}
+
+// Replaces msg with the encoded message in r, with the result decode would give, reusing msg's
+// storage: the elements of repeated messages, strings and bytes, and nested messages present
+// again, are overwritten in place, and strings and vectors keep their capacity while it stays
+// within about twice what the message needs. For decoding many messages into one object, as an
+// endpoint does on every call. r must not point into msg. After a failure msg holds a partial
+// message, which the next parse_from replaces.
+// Memory: what msg holds after a call is what the last message or the one before it decoded into
+// (a cleared string or vector is measured against its previous size), up to twice that plus a
+// little slack per container; as in decode, a message of many empty nested messages decodes into
+// about sizeof(element) bytes per 2 bytes of input. A field whose size swings by more than a
+// factor of two between calls gives storage back and allocates it again on each swing.
+template <synthesized_message T>
+constexpr bool parse_from(T& msg, wire::reader r, decode_error& err) {
+    return detail::parse_message(msg, r, err, true);
+}
+
+// Resets msg to the default message: the elements of repeated fields are destroyed and nested
+// messages released; strings and vectors keep their capacity within about twice their size.
+template <synthesized_message T>
+constexpr void clear(T& msg) {
+    detail::clear_members<false>(msg);
 }
 
 template <synthesized_message T>
@@ -1074,12 +1268,6 @@ concept fills_response = requires(Impl& i, const Req& q, Resp& p) {
     { i.[:H:](q, p) } -> std::same_as<grpc::status>;
 };
 
-consteval std::vector<std::uint32_t> iota(std::uint32_t first, std::uint32_t count) {
-    std::vector<std::uint32_t> v(count);
-    for (std::uint32_t k = 0; k < count; ++k) v[k] = first + k;
-    return v;
-}
-
 // Every rpc of the service needs a public, non-overloaded member function of Impl with the
 // rpc's name, in form A or form B. Checked when the endpoint type is instantiated.
 template <schema_source Schema, fixed_string Service, class Impl>
@@ -1125,7 +1313,9 @@ public:
     // Runs one unary call. `request` is the message payload without the gRPC prefix. On ok,
     // `response` holds the length-prefixed response message; otherwise it is empty. An
     // allocation failure is RESOURCE_EXHAUSTED and any other exception from the handler is
-    // UNKNOWN, as gRPC servers report them; no exception leaves this function.
+    // UNKNOWN, as gRPC servers report them; no exception leaves this function. The endpoint
+    // reuses its messages across calls, so it serves one thread at a time (give each thread its
+    // own endpoint); a handler may call invoke again on the same endpoint.
     grpc::status invoke(std::string_view method_path, std::span<const std::byte> request,
                         std::vector<std::byte>& response) noexcept {
         grpc::status st = grpc::status::unimplemented;
@@ -1164,27 +1354,75 @@ public:
     }
 
 private:
-    Impl& impl_;
+    // Calls of one rpc reuse one request object, and for a handler that fills its response one
+    // response object (parse_from and clear keep their storage), so a call does not allocate for
+    // what an earlier one already sized. A call takes the slot out for its duration, so a handler
+    // that calls invoke again gets a slot of its own; the slot comes back only after a call that
+    // succeeded with a request and a response of at most reuse_limit_bytes, and is released
+    // otherwise (a failure, an exception, a large call).
+    static constexpr std::size_t reuse_limit_bytes = 64 * 1024;
 
+    template <std::uint32_t K>
+    static consteval std::meta::info handler_of() {
+        return detail::find_handler(^^Impl, table_string(tables<Schema>, tables<Schema>.rpcs[K].name), Service.view());
+    }
+
+    template <std::uint32_t K>
+    using request_of = message<Schema, tables<Schema>.rpcs[K].request>;
+
+    template <std::uint32_t K>
+    using response_of = message<Schema, tables<Schema>.rpcs[K].response>;
+
+    template <std::uint32_t K>
+    static constexpr bool handler_returns =
+        detail::returns_response<Impl, request_of<K>, response_of<K>, handler_of<K>()>;
+
+    struct no_response {};
+
+    template <std::uint32_t K>
+    struct rpc_slot {
+        request_of<K> request{};
+        [[no_unique_address]] std::conditional_t<handler_returns<K>, no_response, response_of<K>> response{};
+    };
+
+    struct slot_deleter {
+        void (*destroy)(void*) noexcept = nullptr;
+        void operator()(void* p) const noexcept { destroy(p); }
+    };
+    using slot_ptr = std::unique_ptr<void, slot_deleter>;
+
+    template <std::uint32_t K>
+    static void destroy_slot(void* p) noexcept {
+        std::default_delete<rpc_slot<K>>{}(static_cast<rpc_slot<K>*>(p));
+    }
+
+    Impl& impl_;
+    std::array<slot_ptr, service.rpc_count> slots_{};
 
     template <std::uint32_t K>
     grpc::status call(std::span<const std::byte> request, std::vector<std::byte>& response) {
-        constexpr rpc_meta r = tables<Schema>.rpcs[K];
-        constexpr std::meta::info h =
-            detail::find_handler(^^Impl, table_string(tables<Schema>, r.name), Service.view());
-        using Req = message<Schema, r.request>;
-        using Resp = message<Schema, r.response>;
-        Req req{};
+        slot_ptr held = std::move(slots_[K - service.first_rpc]);
+        if (!held) held = slot_ptr(std::make_unique<rpc_slot<K>>().release(), slot_deleter{&destroy_slot<K>});
+        const grpc::status st = serve<K>(*static_cast<rpc_slot<K>*>(held.get()), request, response);
+        if (st == grpc::status::ok && request.size() <= reuse_limit_bytes && response.size() <= reuse_limit_bytes)
+            slots_[K - service.first_rpc] = std::move(held);
+        return st;
+    }
+
+    template <std::uint32_t K>
+    grpc::status serve(rpc_slot<K>& slot, std::span<const std::byte> request, std::vector<std::byte>& response) {
+        constexpr std::meta::info h = handler_of<K>();
         decode_error err{};
-        if (!merge_from(req, wire::reader(request), err)) return grpc::status::internal;
-        if constexpr (detail::returns_response<Impl, Req, Resp, h>) {
-            const Resp resp = impl_.[:h:](req);
+        if (!parse_from(slot.request, wire::reader(request), err)) return grpc::status::internal;
+        const request_of<K>& req = slot.request;
+        if constexpr (handler_returns<K>) {
+            const response_of<K> resp = impl_.[:h:](req);
             return encode_framed(resp, response) ? grpc::status::ok : grpc::status::resource_exhausted;
         } else {
-            Resp resp{};
-            const grpc::status st = impl_.[:h:](req, resp);
+            tep::clear(slot.response);
+            const grpc::status st = impl_.[:h:](req, slot.response);
             if (st != grpc::status::ok) return st;
-            return encode_framed(resp, response) ? grpc::status::ok : grpc::status::resource_exhausted;
+            return encode_framed(slot.response, response) ? grpc::status::ok : grpc::status::resource_exhausted;
         }
     }
 };

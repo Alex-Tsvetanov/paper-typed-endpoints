@@ -5,6 +5,7 @@
 // by reflection to prove that synthesis ran, and the encoder's output is compared byte for byte
 // with protoc's encoding of the same values (tests/golden/README.md).
 
+#include <algorithm>
 #include <bit>
 #include <cstdint>
 #include <initializer_list>
@@ -51,6 +52,26 @@ consteval { tep::define_messages<dispatch_proto>(); }
 
 using Small = tep::message_t<dispatch_proto, "tep.dispatch.Small">;
 using Dense = tep::message_t<dispatch_proto, "tep.dispatch.Dense">;
+
+// Every kind of member parse_from keeps or clears: a nested message, repeated messages, strings and
+// bytes, packed numbers, and singular strings, bytes and numbers.
+struct reuse_proto {
+    static constexpr std::string_view text = R"(syntax = "proto3";
+package tep.reuse;
+message Twig { int32 n = 1; string s = 2; }
+message Leaf { int32 id = 1; string label = 2; repeated sint64 values = 3; Twig twig = 4; repeated Twig twigs = 5; }
+message Holder {
+  Leaf one = 1; repeated Leaf many = 2; repeated sint32 packed = 3; string name = 4; bytes raw = 5;
+  repeated string tags = 6; uint32 u = 7; repeated bytes blobs = 8;
+}
+)";
+};
+
+consteval { tep::define_messages<reuse_proto>(); }
+
+using Twig = tep::message_t<reuse_proto, "tep.reuse.Twig">;
+using Leaf = tep::message_t<reuse_proto, "tep.reuse.Leaf">;
+using Holder = tep::message_t<reuse_proto, "tep.reuse.Holder">;
 
 // Synthesis ran: the members exist with the schema's names, order and mapped types.
 namespace synthesis {
@@ -268,6 +289,177 @@ void test_dispatch_paths() {
     check_dispatch(d);
 }
 
+Leaf leaf(std::int32_t id, std::string label, std::vector<std::int64_t> values) {
+    Leaf l{};
+    l.id = id;
+    l.label = std::move(label);
+    l.values = std::move(values);
+    return l;
+}
+
+Holder rich_holder() {
+    Holder h{};
+    h.one = leaf(1, "a label longer than the small-string buffer", {-1, 2});
+    for (std::int32_t i = 0; i < 3; ++i) {
+        Leaf l = leaf(i, std::string(40, static_cast<char>('a' + i)), {i, -i, 1000});
+        if (i != 1) l.twig = Twig{.n = i, .s = std::string(30, 'w')};  // a nested message in some elements
+        for (std::int32_t t = 0; t <= i; ++t) l.twigs.push_back(Twig{.n = t, .s = std::string(20, 's')});
+        h.many.push_back(std::move(l));
+    }
+    h.packed = {1, -2, 3};
+    h.name = "a name longer than the small-string buffer";
+    h.raw = std::string(30, 'r');
+    h.tags = {std::string(20, 't'), "b", "c"};
+    h.u = 7;
+    h.blobs = {std::string(25, 'x'), ""};
+    return h;
+}
+
+// Fewer elements, nested messages where rich_holder has none and none where it has them.
+Holder sparse_holder() {
+    Holder h{};
+    Leaf l = leaf(9, {}, {});
+    l.twigs = {Twig{.n = 7, .s = {}}};
+    h.many.push_back(std::move(l));
+    h.many.push_back(leaf(10, {}, {}));
+    h.many[1].twig = Twig{.n = 1, .s = "new"};
+    h.tags = {"x"};
+    return h;
+}
+
+// The capacity of every string and vector a Holder holds, nested ones included.
+std::size_t held_capacity(const Holder& h) {
+    std::size_t n = h.many.capacity() * sizeof(Leaf) + h.packed.capacity() * sizeof(std::int32_t);
+    n += h.name.capacity() + h.raw.capacity() + h.tags.capacity() * sizeof(std::string);
+    for (const std::string& t : h.tags) n += t.capacity();
+    for (const Leaf& l : h.many) {
+        n += l.label.capacity() + l.values.capacity() * sizeof(std::int64_t);
+        if (l.twig) n += sizeof(Twig) + l.twig->s.capacity();
+        n += l.twigs.capacity() * sizeof(Twig);
+        for (const Twig& t : l.twigs) n += t.s.capacity();
+    }
+    return n;
+}
+
+// parse_from gives what decode gives, whatever the message held before, and reuses its storage.
+void test_parse_from() {
+    const auto rich = tep::encode(rich_holder());
+    const auto sparse = tep::encode(sparse_holder());
+    tep::decode_error err{};
+    Holder h{};
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && h == rich_holder());
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(sparse), err) && h == sparse_holder());
+    TEP_CHECK(!h.one.has_value() && h.many.size() == 2 && h.tags.size() == 1 && h.blobs.empty());
+    TEP_CHECK(!h.many[0].twig.has_value() && h.many[0].twigs.size() == 1 && h.many[1].twigs.empty());
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && h == rich_holder());
+    // The same message again overwrites in place: no vector or string moves to new storage.
+    const Leaf* many = h.many.data();
+    const char* label = h.many[0].label.data();
+    const char* tag = h.tags[0].data();
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && h == rich_holder());
+    TEP_CHECK(h.many.data() == many && h.many[0].label.data() == label && h.tags[0].data() == tag);
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader({}), err) && h == Holder{});
+
+    // A nested message that arrives twice merges, as in decode; after a rich message too.
+    Holder part{};
+    part.one = leaf(5, {}, {1});
+    std::vector<std::byte> twice = tep::encode(part);
+    part.one = leaf(0, "second", {2});
+    const auto second = tep::encode(part);
+    twice.insert(twice.end(), second.begin(), second.end());
+    h = rich_holder();
+    const auto merged = tep::decode<Holder>(twice);
+    TEP_CHECK(merged && merged->one->id == 5 && merged->one->values.size() == 2);
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(twice), err) && merged && h == *merged);
+
+    // Elements interleaved with other fields keep their order.
+    Holder piece{};
+    piece.many = {leaf(1, "p", {})};
+    std::vector<std::byte> interleaved = tep::encode(piece);
+    for (std::int32_t i = 2; i <= 4; ++i) {
+        piece = Holder{};
+        piece.tags = {std::to_string(i)};
+        const auto tag_bytes = tep::encode(piece);
+        piece = Holder{};
+        piece.many = {leaf(i, {}, {})};
+        const auto leaf_bytes = tep::encode(piece);
+        interleaved.insert(interleaved.end(), tag_bytes.begin(), tag_bytes.end());
+        interleaved.insert(interleaved.end(), leaf_bytes.begin(), leaf_bytes.end());
+    }
+    h = rich_holder();
+    const auto fresh = tep::decode<Holder>(interleaved);
+    TEP_CHECK(fresh && fresh->many.size() == 4 && fresh->tags.size() == 3);
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(interleaved), err) && fresh && h == *fresh);
+
+    // A failed parse leaves a message that the next parse_from replaces.
+    TEP_CHECK(!tep::parse_from(h, tep::wire::reader(std::span(rich).first(rich.size() - 1)), err));
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(sparse), err) && h == sparse_holder());
+
+    // The table dispatch (Dense, 17 fields) with a nested message.
+    Dense d{};
+    d.b2 = "dense";
+    d.b13 = {"a", "b"};
+    d.b17 = Small{};
+    d.b17->a13 = {"x"};
+    const auto dense = tep::encode(d);
+    Dense other{};
+    other.b5 = {9, 9};
+    other.b17 = Small{};
+    other.b17->a2 = "kept storage";
+    TEP_CHECK(tep::parse_from(other, tep::wire::reader(dense), err) && other == d);
+
+    // merge_from still appends.
+    Holder m = rich_holder();
+    TEP_CHECK(tep::merge_from(m, tep::wire::reader(sparse), err) && m.many.size() == 5 && m.tags.size() == 4);
+}
+
+// clear gives the default message and keeps the capacity of strings and vectors within the slack.
+void test_clear() {
+    Holder h = rich_holder();
+    const std::size_t many = h.many.capacity();
+    const std::size_t name = h.name.capacity();
+    tep::clear(h);
+    TEP_CHECK(h == Holder{});
+    TEP_CHECK(h.many.capacity() == many && h.name.capacity() == name);
+    h.name = std::string(10'000, 'n');
+    tep::clear(h);
+    tep::clear(h);  // the second clear sees the size 0 left by the first
+    TEP_CHECK(h.name.capacity() <= tep::detail::string_slack);
+}
+
+// Reused storage stays in proportion to the messages decoded: no run of calls ratchets it up.
+void test_reuse_is_bounded() {
+    tep::decode_error err{};
+    // Each call puts one large string at a new position among empty ones (a reused element
+    // would otherwise keep the largest value it ever held).
+    Holder h{};
+    std::size_t largest_wire = 0;
+    for (std::size_t j = 1; j <= 40; ++j) {
+        Holder m{};
+        m.tags.assign(j, std::string{});
+        m.tags[j - 1] = std::string(2000, 'x');
+        const auto bytes = tep::encode(m);
+        largest_wire = std::max(largest_wire, bytes.size());
+        TEP_CHECK(tep::parse_from(h, tep::wire::reader(bytes), err) && h == m);
+        // About 2000 for the large string and 100 per element; kept large ones would be 2000 each.
+        TEP_CHECK(held_capacity(h) <= 3 * 2048 + 100 * j + 1024);
+    }
+    TEP_CHECK(largest_wire < 3000);
+    // One call with many elements, a singular string and packed numbers, then small calls.
+    Holder big{};
+    for (std::int32_t i = 0; i < 5000; ++i) big.many.push_back(leaf(i, {}, {}));
+    big.many[0].values.assign(10'000, 5);  // numbers inside a reused element
+    big.many[0].twig = Twig{.n = 1, .s = std::string(5000, 'w')};
+    big.many[0].twigs.assign(500, Twig{.n = 2, .s = std::string(100, 's')});
+    big.packed.assign(10'000, 3);
+    big.name = std::string(10'000, 'n');
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(tep::encode(big)), err) && h == big);
+    const Holder small = sparse_holder();
+    const auto small_bytes = tep::encode(small);
+    for (int k = 0; k < 2; ++k) TEP_CHECK(tep::parse_from(h, tep::wire::reader(small_bytes), err) && h == small);
+    TEP_CHECK(held_capacity(h) <= 4096);
+}
+
 }  // namespace
 
 int main() {
@@ -276,5 +468,8 @@ int main() {
     test_decode_rules();
     test_decode_errors();
     test_dispatch_paths();
+    test_parse_from();
+    test_clear();
+    test_reuse_is_bounded();
     return tep_test::finish("test_reflect");
 }

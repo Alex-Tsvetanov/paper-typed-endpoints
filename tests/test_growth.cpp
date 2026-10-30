@@ -169,7 +169,64 @@ void test_malformed_runs() {
 
 }  // namespace
 
+// The endpoint's reused messages: a steady run of calls allocates nothing, and a call over the
+// 64 KiB limit or a failed call releases them (the next call allocates them again).
+struct slot_proto {
+    static constexpr std::string_view text = R"(syntax = "proto3";
+package tep.slot;
+message Msg { int32 n = 1; string s = 2; repeated int32 v = 3; }
+service Svc { rpc Echo(Msg) returns (Msg); }
+)";
+};
+
+consteval { tep::define_messages<slot_proto>(); }
+
+using Msg = tep::message_t<slot_proto, "tep.slot.Msg">;
+
+struct slot_impl {
+    tep::grpc::status Echo(const Msg& q, Msg& r) {
+        if (q.n < 0) return tep::grpc::status::invalid_argument;
+        r = q;
+        return tep::grpc::status::ok;
+    }
+};
+
+using slot_endpoint = tep::endpoint<slot_proto, "tep.slot.Svc", slot_impl>;
+
+namespace {
+
+void test_endpoint_slots() {
+    slot_impl impl;
+    slot_endpoint ep{impl};
+    std::vector<std::byte> response;
+    const Msg m{.n = 1, .s = "short", .v = {1, 2, 3}};
+    Msg big = m;
+    big.v.assign(40'000, 1000);  // two bytes each: over 64 KiB
+    Msg bad = m;
+    bad.n = -1;
+    const auto small = tep::encode(m);
+    const auto large = tep::encode(big);
+    const auto failing = tep::encode(bad);
+    const auto allocations_of = [&](const std::vector<std::byte>& request, tep::grpc::status want) {
+        const std::size_t before = allocations;
+        TEP_CHECK(ep.invoke("/tep.slot.Svc/Echo", request, response) == want);
+        return allocations - before;
+    };
+    using enum tep::grpc::status;
+    allocations_of(small, ok);  // makes the slot and sizes the response buffer
+    TEP_CHECK(allocations_of(small, ok) == 0);
+    allocations_of(large, ok);
+    TEP_CHECK(allocations_of(small, ok) > 0);  // the large call released the slot
+    TEP_CHECK(allocations_of(small, ok) == 0);
+    allocations_of(failing, invalid_argument);
+    TEP_CHECK(allocations_of(small, ok) > 0);  // so did the failed call
+    TEP_CHECK(allocations_of(small, ok) == 0);
+}
+
+}  // namespace
+
 int main() {
+    test_endpoint_slots();
     test_together_is_one_allocation();
     test_pieces_grow_geometrically();
     test_malformed_runs();

@@ -26,10 +26,18 @@ namespace {
 using Person = tep::message_t<e2e_proto, "bench.e2e.Person">;
 using Order = tep::message_t<e2e_proto, "bench.e2e.Order">;
 
-// The handler: the response is a copy of the request, in both arms.
+// The handler: the response is a copy of the request, in every arm. It fills the response the
+// endpoint keeps for the rpc, so the copy reuses that response's storage, as arm P copies into a
+// message on its arena.
 struct echo {
-    Person EchoPerson(const Person& q) { return q; }
-    Order EchoOrder(const Order& q) { return q; }
+    tep::grpc::status EchoPerson(const Person& q, Person& r) {
+        r = q;
+        return tep::grpc::status::ok;
+    }
+    tep::grpc::status EchoOrder(const Order& q, Order& r) {
+        r = q;
+        return tep::grpc::status::ok;
+    }
 };
 
 class reflection_arm final : public e2e::arm {
