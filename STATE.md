@@ -41,11 +41,14 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   ghz on Windows; P's arena; MinGW first, else a declared gap. 19/19 in `linux-gcc1620-e2e` (ASan,
   protobuf with the same flags), `-e2e-release`, and `mingw-gcc1620-e2e-release` (MinGW abseil,
   protobuf, nghttp2 unpatched, `bench/build_protobuf_mingw.sh`; libstdc++ dynamic, finding F4).
-- Related-work survey (858a9b6): `design/related-work-survey.md`, Sonnet gathered, Opus checked
-  every claim (33 corrected, 3 removed, 7 items added, 5 still unverified). The gap held.
+- Related-work survey (858a9b6): `design/related-work-survey.md` (5 claims still unverified). The gap held.
 - Fuzzing (c1dd0fb): `fuzz/` targets for the schema front end, the wire and gRPC parsers, and the
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
   libFuzzer executables.
+- Interop (design note 6, functional): `interop/go` (Go 1.27.2, grpc v1.84.0, `go.sum`), built by
+  `tools/build_interop.sh` from the module cache (`C:\Users\alext\opt\_dl\p5-go-modcache`, 117 MB);
+  `test_interop` (`-DTEP_INTEROP_BIN`, `-DTEP_GHZ`): grpc-go client and ghz against R and P, tep
+  against the grpc-go server; each side checks every field. Passes on Linux (Release, ASan), MinGW.
 - Decoding: up to 16 fields compare inline, larger messages dispatch through field-number tables
   (613d6fb, 1e4b25d). Repeated fields reserve for the elements that arrive together and grow
   geometrically otherwise (`test_growth`; the old exact reserve per packed chunk was quadratic).
@@ -74,10 +77,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   each of the four toolchains above `-v D:\Dev\toolchains\<name>-linux[-asan]:/home/dev/opt/<name>[-asan]:ro`,
   `-w <repo> papers-dev:arch-2026-10-23 bash tools/dev_linux_all.sh <presets>` (`MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results (pass or fail only): growth fix, `linux-gcc1620-{e2e,e2e-release}` 22 of 22,
-  `mingw-gcc1620-e2e-release` 21 of 21 (`allocs` is Linux only). At 91dbece `msvc-{debug,asan}` 8 of
-  8 portable, `reflection_layer` Skipped with the reason; `msvc-e2e-asan` builds, `server` fails at
-  start-up (M2).
+- Results (pass or fail only), with interop: `linux-gcc1620-{e2e,e2e-release}` 23 of 23 (`allocs`
+  Skipped under ASan), `mingw-gcc1620-e2e-release` 22 of 22 (`allocs` Linux only), `msvc-e2e-asan`
+  9 of 9 (transport only). At 91dbece `msvc-{debug,asan}` 8 of 8 portable.
 - Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
   the encoder matches them byte for byte for all scalar types, enums, nested and repeated fields.
 - TSan: not run yet; the server has threads (`test_server`, two workers). Needs a TSan preset, a TSan
@@ -85,12 +87,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Toolchain facts (desktop, 2026-10-23)
 
-- GCC 16 (`papers-dev` 16.2.1, pinned 16.2.0): P2996 with `-freflection` (202603L), `#embed`
-  (202502L). It refuses `^^std::int32_t`; reflect such types through a template.
+- GCC 16.2.0: P2996 with `-freflection` (202603L), `#embed`; refuses `^^std::int32_t` (use a template).
 - clang 22.1.8 rejects `-freflection`. MSVC 19.51.36246 has no P2996 and no `#embed`.
 - CMake 4.3.2 (Windows) has no C++26 flag for MSVC: the MSVC build uses C++23.
-- MinGW-w64 GCC 16.2.0 (Alex decides 1): the winlibs r3 zip (276,414,382 bytes, sha256
-  3c693050...b6a1, `lab/laptop/versions.md`) unpacked to
+- MinGW-w64 GCC 16.2.0 (Alex decides 1; winlibs r3, `lab/laptop/versions.md`) in
   `C:\Users\alext\opt\winlibs-gcc-16.2.0-mingw-w64ucrt-14.0.0-r3` (not on PATH). P2996 and `#embed`;
   F1 reproduces, F2 does not; no ASan or UBSan; `thread_local` is emulated (review M1).
 - GCC 16.2.0 on every host since 2026-10-29 (Alex decides 10; Laptop request 4; dev image above).
@@ -117,9 +117,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: Laptop request 8 (second e2e pilot after the growth fix); then R's medium gap (the
-      options that change types or reuse messages are Alex's); interop with grpc-go (downloads wait
-      for Alex); D5 records at the code freeze.
+- [ ] Next: R's medium gap (allocator): per-worker message reuse under Q2 ("reused buffers, and no
+      per-request heap allocation where possible"); type changes (pmr) or P's configuration stay
+      Alex's. Then the many-shape compile question; D5 records at the code freeze.
 
 ## Laptop requests
 
@@ -130,13 +130,10 @@ queue; design, scope and pushes still go to Alex.
    gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
 2. Done 2026-10-29 (A23 at c525595, archive `gap44-a-q1-p5-pilot-c2670a4d`, sha256 4b01a015...cc82).
    Pilot. Replicates within 0.3%; at 1024 R spends 62 to 78% in code generation.
-3. Done 2026-10-30 (A31 try 4 at fce6a17, `bench/requests/e2e-pilot.md`; archives
-   `gap54-a-q1-p5-e2e-build3-7186ae39` sha256 3ac6e3dc...9a7a, `gap52-a-q2-p5-e2e-run-2bd355f5`
-   sha256 30ed7123...619e). Pilot, not a result. 132 windows, 0 failed, all 2xx, server counts in
-   the bound; the job's count also matched `h2load-version.txt`. Window spread at most 1.7%. Knee
-   at c12 m128; c48 adds nothing (small) or loses (medium); c1 m1 is client-bound (about 30k req/s,
-   every arm). R/P from c12: small 1.01 to 1.07 (every R window above every P window), medium 0.97,
-   0.92, then 0.79 to 0.87 (every P window above). Medium order S P R; clock floor held.
+3. Done 2026-10-30 (A31 at fce6a17, `bench/requests/e2e-pilot.md`; archive run
+   `gap52-a-q2-p5-e2e-run-2bd355f5` sha256 30ed7123...619e). Pilot. Checks pass; spread at most 1.7%;
+   knee c12 m128; c1 m1 client-bound (about 30k req/s, every arm). R/P from c12: small 1.01 to
+   1.07, medium 0.97, 0.92, then 0.79 to 0.87.
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. Done 2026-10-30 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
@@ -146,18 +143,21 @@ queue; design, scope and pushes still go to Alex.
    0.30 at 16; wide 0.86, 0.90, 0.77 (1024, 2048, 4096); many 1.00, 1.20, 1.56 (R loses from 2048;
    many 4096 at the raised limit). RSS: R lower for wide, 2.9 times P at many 4096. A27 to A28 cut
    R wide (4096: 246.90 to 126.62 s, code generation 229 to 106 s); many unchanged. Pilot.
-8. Ready: `bench/requests/e2e-pilot-2.md`, the first pilot again after the growth fix, R and P
-   swapped in each payload's order.
+8. Done 2026-10-30 (A33 at 16fdbd5, `bench/requests/e2e-pilot-2.md`; archives
+   `gap55-a-q1-p5-e2e2-build-cb4bb3c2` sha256 9fe06b9d...d036, `gap55-a-q2-p5-e2e2-run-f472a6ce`
+   sha256 b083da61...080f). Pilot. All checks pass; spread at most 2.3%; S and P at c12 m128 within
+   0.8% of A31. R/P from c12: small 1.03 to 1.08; medium 1.01 (m1), tie (m8), 0.92 to 0.96 from m32
+   (R before P this time). R medium +14.7% over A31. perf (cycles:u, c12 m128): libc 22.5% of R's
+   cycles against 9.0% of P's on medium, 5.7 against 4.8% on small: the gap is R's heap allocations.
 
 ## Lab requests
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 
 1. Done 2026-10-29: protobuf 36.2 and abseil 20250512.1 in `C:\Users\alext\opt\_dl\p5-protobuf-36.2`.
-2. Pin Go 1.27.2 (Alex, D2: the same as P4 and P7) and grpc-go for the interop programs (go.dev publishes sha256 for Go archives; grpc-go
-   through `go.sum`). Go is installed on the desktop (`C:\Program Files\Go`), version not recorded.
-3. Pin nghttp2 (source) for the transport and h2load; the image has `libnghttp2` 1.70.0 only.
-4. Done 2026-10-24 (job `p5-mingw-w`): the MinGW-w64 GCC 16.2.0 zip on the laptop's Windows, checked.
+2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2 and ghz v0.121.0 for Windows and
+   Linux, sha256 equal to `bench/pins.md`, in `%USERPROFILE%\opt` and `D:\Dev\toolchains`; modules by `go.sum`.
+3. Done 2026-10-30: nghttp2 1.70.0 and libev 4.33 (source). 4. Done 2026-10-24: MinGW zip on the laptop.
 
 ## Alex decides
 

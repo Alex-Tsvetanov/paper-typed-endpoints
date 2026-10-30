@@ -20,6 +20,8 @@ option(TEP_E2E "Build the end-to-end transport and arms (arm P needs the pinned 
 option(TEP_E2E_TRANSPORT_ONLY "With TEP_E2E: the transport and arm S only, no protobuf (the MSVC ASan record)" OFF)
 set(TEP_PROTOBUF_ROOT "" CACHE PATH "Install prefix of the pinned protobuf (bench/build_protobuf.sh)")
 set(TEP_NGHTTP2_ROOT "" CACHE PATH "Install prefix of the pinned libnghttp2 (bench/build_nghttp2.sh); empty: pkg-config (Linux)")
+set(TEP_INTEROP_BIN "" CACHE PATH "The grpc-go interop programs (tools/build_interop.sh); empty: no interop test")
+set(TEP_GHZ "" CACHE FILEPATH "The pinned ghz binary (bench/pins.md); needed with TEP_INTEROP_BIN")
 
 # Portable layers: schema front end, wire primitives, gRPC framing (C++23).
 add_library(tep INTERFACE)

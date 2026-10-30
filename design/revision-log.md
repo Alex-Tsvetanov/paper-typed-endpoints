@@ -75,3 +75,15 @@ Decided by Alex (AskUserQuestion through the coordinator, 2026-10-30); his pick 
 
 Correction: entries and files written earlier today said 2026-10-31 for events of 2026-10-30
 (commit dates, the laptop's job logs). The dates are corrected in place.
+
+## 2026-10-30. How the interop check of section 6 runs
+
+Decided by this session (no new question: it carries out decision 4 of 2026-10-23 and section 6).
+
+- Section 6 asks for a grpc-go client that checks every response field, and a grpc-go server that
+  answers tep-encoded requests. Decision 4 has ghz run the grpc-go interop check. ghz reports
+  status codes, not reply fields, so the check runs both: two small grpc-go programs
+  (`interop/go`) compare every field in each direction, and ghz calls both rpcs on arms R and P
+  and must report every call OK. ghz still also serves the one cross-check of decision 4.
+- Functional and untimed, so it runs on the desktop (`server/test_interop.cpp`, CTest `interop`
+  with `-DTEP_INTEROP_BIN` and `-DTEP_GHZ`).

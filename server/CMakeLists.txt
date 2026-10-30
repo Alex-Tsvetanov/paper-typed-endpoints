@@ -121,3 +121,29 @@ target_include_directories(test_server PRIVATE ${PROJECT_SOURCE_DIR}/tests)
 target_link_libraries(test_server PRIVATE e2e_transport)
 tep_test_target(test_server)
 add_test(NAME server COMMAND test_server)
+
+# Interoperability with grpc-go (design note section 6), when its programs are built. Asking for
+# it where arm R cannot be built, or without the programs, stops the configuration, so a green
+# test run never hides an interop test that was not registered.
+if(TEP_INTEROP_BIN)
+  if(NOT TEP_E2E_ARM_R)
+    message(FATAL_ERROR "TEP_INTEROP_BIN needs arms R and P (P2996, not TEP_E2E_TRANSPORT_ONLY)")
+  endif()
+  get_filename_component(tep_interop_bin "${TEP_INTEROP_BIN}" ABSOLUTE)
+  file(TO_CMAKE_PATH "${tep_interop_bin}" tep_interop_bin)
+  file(TO_CMAKE_PATH "${TEP_GHZ}" tep_ghz)
+  foreach(program ${tep_interop_bin}/interop_client${CMAKE_EXECUTABLE_SUFFIX}
+                  ${tep_interop_bin}/interop_server${CMAKE_EXECUTABLE_SUFFIX} ${tep_ghz})
+    if(NOT EXISTS "${program}")
+      message(FATAL_ERROR "interop test: '${program}' does not exist (tools/build_interop.sh; TEP_GHZ)")
+    endif()
+  endforeach()
+  add_executable(test_interop test_interop.cpp)
+  target_include_directories(test_interop PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+  target_link_libraries(test_interop PRIVATE e2e_transport tep_reflect)
+  target_compile_definitions(test_interop PRIVATE TEP_INTEROP_BIN="${tep_interop_bin}" TEP_GHZ="${tep_ghz}"
+                                                  TEP_E2E_PROTO="${CMAKE_CURRENT_SOURCE_DIR}/e2e.proto")
+  tep_test_target(test_interop)
+  add_test(NAME interop COMMAND test_interop)
+  set_tests_properties(interop PROPERTIES TIMEOUT 120)
+endif()
