@@ -77,9 +77,11 @@ concept synthesized_message = requires { message_traits<T>::index; };
 
 namespace detail {
 
-// Storage kept for reuse stays in proportion to the messages it held: a string or vector whose
-// capacity passes twice its size plus the slack gives the rest back when it is cleared, and a
-// repeated field keeps at most twice its element count plus vector_slack elements.
+// Storage kept for reuse follows the messages a reused object holds: a string or vector whose
+// capacity passes twice its size plus the slack gives the rest back when it is cleared, and storage
+// that a whole message left unused (a repeated field's kept elements, an absent nested message's
+// storage) is freed at the next clear. A reused message then holds what the last message decoded
+// into, reset, within that slack.
 inline constexpr std::size_t string_slack = 64;
 inline constexpr std::size_t vector_slack = 16;
 
@@ -92,10 +94,13 @@ void reset_kept(T& v);
 
 // A singular message field. The value lives on the heap, so an absent sub-message costs one pointer
 // instead of its whole size (a message type holds its sub-messages through boxes). Like protobuf's
-// messages, a box keeps its storage when the field is cleared: reset() makes it absent and resets
-// the kept message to the default, and the next emplace() or assignment reuses it, so a message
-// reused across calls does not allocate again for a sub-message it already held. Presence is the
-// low bit of the pointer (heap storage is at least two-byte aligned).
+// messages, a box keeps its storage when the field is cleared: reset() makes a present field absent
+// and resets the kept message to the default, and the next emplace() or assignment reuses it, so a
+// message reused across calls does not allocate again for a sub-message it already held. reset() on
+// a field that is already absent frees the kept storage, so storage stays only while the messages
+// a reused object holds keep using it. Copy assignment into a present box gives the basic exception
+// guarantee: after a throw, the field holds a valid mix of old and new values. Presence is the low
+// bit of the pointer to the storage, which is aligned to at least two bytes.
 template <class T>
 class box {
 public:
@@ -132,10 +137,22 @@ public:
 
     [[nodiscard]] bool has_value() const noexcept { return (bits_ & present) != 0; }
     explicit operator bool() const noexcept { return has_value(); }
-    T& operator*() noexcept { return *stored(); }
-    const T& operator*() const noexcept { return *stored(); }
-    T* operator->() noexcept { return stored(); }
-    const T* operator->() const noexcept { return stored(); }
+    T& operator*() noexcept {
+        assert(has_value());
+        return *stored();
+    }
+    const T& operator*() const noexcept {
+        assert(has_value());
+        return *stored();
+    }
+    T* operator->() noexcept {
+        assert(has_value());
+        return stored();
+    }
+    const T* operator->() const noexcept {
+        assert(has_value());
+        return stored();
+    }
 
     // Makes the field present with the default message, reusing kept storage.
     T& emplace() {
@@ -148,12 +165,18 @@ public:
         return *stored();
     }
 
-    // Makes the field absent. The storage is kept, reset to the default message; storage kept while
-    // the field was already absent is reset again, which gives back what its contents kept from the
-    // last message that set it.
-    void reset() {
+    // Makes a present field absent and keeps its storage, reset to the default message; on an
+    // absent field, frees the storage kept from an earlier message. Resetting only clears and gives
+    // back capacity, which libstdc++ (the only library the reflection layer builds with) does
+    // without throwing; noexcept makes a throw terminate rather than leave partial data in kept
+    // storage, and spares every message type a landing pad.
+    void reset() noexcept {
+        if (!has_value()) {
+            release();
+            return;
+        }
         bits_ &= ~present;
-        if (T* const p = stored()) detail::reset_kept(*p);
+        detail::reset_kept(*stored());
     }
 
     // Makes the field absent and frees the storage.
@@ -162,7 +185,7 @@ public:
         bits_ = 0;
     }
 
-    // Whether storage is held, present or kept (for memory accounting).
+    // The storage held, present or kept for reuse, or null (for memory accounting and tests).
     [[nodiscard]] bool holds_storage() const noexcept { return stored() != nullptr; }
     [[nodiscard]] const T* kept_storage() const noexcept { return stored(); }
 
@@ -173,17 +196,27 @@ public:
 
 private:
     static constexpr std::uintptr_t present = 1;
-    static_assert(alignof(std::max_align_t) >= 2, "box keeps presence in the pointer's low bit");
+
+    // The storage: T aligned to at least two bytes, so the pointer's low bit is free.
+    struct cell {
+        alignas(alignof(T) < 2 ? 2 : alignof(T)) T value;
+    };
 
     template <class... A>
     static std::uintptr_t make(A&&... a) {
-        T* const p = new T(std::forward<A>(a)...);
-        const auto bits = reinterpret_cast<std::uintptr_t>(p);
+        cell* const c = new cell{T(std::forward<A>(a)...)};
+        const auto bits = reinterpret_cast<std::uintptr_t>(c);
         assert((bits & present) == 0);
         return bits;
     }
-    [[nodiscard]] T* stored() const noexcept { return reinterpret_cast<T*>(bits_ & ~present); }
-    void destroy() noexcept { delete stored(); }
+    [[nodiscard]] cell* stored_cell() const noexcept { return reinterpret_cast<cell*>(bits_ & ~present); }
+    [[nodiscard]] T* stored() const noexcept {
+        cell* const c = stored_cell();
+        return c == nullptr ? nullptr : &c->value;
+    }
+    // Out of line, one function per message type, so the sub-message's destructor is not inlined
+    // into every reset, assignment and destructor of the box.
+    [[gnu::noinline]] void destroy() noexcept { delete stored_cell(); }
 
     // Copies v into the kept storage, or into new storage. A copy that throws into kept storage of
     // an absent field frees it, so no storage outside the field's value holds partial data.
@@ -207,11 +240,14 @@ private:
     std::uintptr_t bits_ = 0;
 };
 
-// A repeated message, string or bytes field: a vector-like sequence whose elements are kept, reset to
-// their default, when the sequence shrinks, and reused when it grows again, as protobuf's repeated
-// fields keep cleared elements. A message reused across calls then does not allocate again for
-// elements, strings and sub-messages it already held. Every element past size() is a kept element
-// equal to T{}; at most twice the last size plus vector_slack elements are kept.
+// A repeated message, string or bytes field: a vector-like sequence that keeps the elements it
+// loses, reset to their default, and reuses them when it grows again, as protobuf's repeated fields
+// keep cleared elements. A message reused across calls then does not allocate again for elements,
+// strings and sub-messages it already held. Every element past size() is a kept element equal to
+// T{}. A kept element that no operation reused before the next shrink is freed then, so the kept
+// elements are at most those the previous contents used. Shrinking to a nonzero size erases at the
+// end and never moves the elements that stay; clear() also gives back capacity beyond twice the
+// kept elements plus vector_slack.
 template <class T>
 class repeated {
 public:
@@ -247,12 +283,24 @@ public:
     [[nodiscard]] size_type size() const noexcept { return n_; }
     [[nodiscard]] bool empty() const noexcept { return n_ == 0; }
     [[nodiscard]] size_type capacity() const noexcept { return items_.capacity(); }
-    T& operator[](size_type i) noexcept { return items_[i]; }
-    const T& operator[](size_type i) const noexcept { return items_[i]; }
-    T& front() noexcept { return items_[0]; }
-    const T& front() const noexcept { return items_[0]; }
-    T& back() noexcept { return items_[n_ - 1]; }
-    const T& back() const noexcept { return items_[n_ - 1]; }
+    T& operator[](size_type i) noexcept {
+        assert(i < n_);
+        return items_[i];
+    }
+    const T& operator[](size_type i) const noexcept {
+        assert(i < n_);
+        return items_[i];
+    }
+    T& front() noexcept { return (*this)[0]; }
+    const T& front() const noexcept { return (*this)[0]; }
+    T& back() noexcept {
+        assert(n_ != 0);
+        return items_[n_ - 1];
+    }
+    const T& back() const noexcept {
+        assert(n_ != 0);
+        return items_[n_ - 1];
+    }
     T* data() noexcept { return items_.data(); }
     const T* data() const noexcept { return items_.data(); }
     iterator begin() noexcept { return items_.begin(); }
@@ -274,7 +322,7 @@ public:
     void push_back(const T& v) { put(v); }
     void push_back(T&& v) { put(std::move(v)); }
 
-    // Removes every element; they are reset and kept.
+    // Removes every element; they are reset and kept (see the class comment).
     void clear() { truncate(0); }
 
     void resize(size_type n) {
@@ -284,11 +332,15 @@ public:
             while (n_ < n) emplace_back();
         }
     }
+    // v may be an element of this sequence: growing past the storage copies it first.
     void resize(size_type n, const T& v) {
         if (n < n_) {
             truncate(n);
+        } else if (n > items_.size()) {
+            const T copy = v;
+            while (n_ < n) put(copy);
         } else {
-            while (n_ < n) push_back(v);
+            while (n_ < n) put(v);
         }
     }
 
@@ -318,28 +370,21 @@ private:
         ++n_;
     }
 
-    // Keeps the first n elements. The rest are kept, at most twice the previous size plus the slack,
-    // and reset: an element that was live is reset within what it held, and one already kept again,
-    // which gives back what it kept from an earlier message. A reset that throws drops every
+    // Keeps the first n elements. Kept elements that nothing reused since the last shrink are freed;
+    // the elements from n to the old size are reset and kept. A reset that throws drops every
     // element, so no kept element holds partial data.
     void truncate(size_type n) {
         const size_type before = n_;
         try {
-            bound(std::max(n, before));
-            for (size_type i = n; i < items_.size(); ++i) detail::reset_kept(items_[i]);
+            if (items_.size() > before) items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(before), items_.end());
+            for (size_type i = n; i < before; ++i) detail::reset_kept(items_[i]);
+            if (n == 0 && items_.capacity() > 2 * items_.size() + detail::vector_slack) items_.shrink_to_fit();
         } catch (...) {
             items_.clear();
             n_ = 0;
             throw;
         }
         n_ = n;
-    }
-
-    // Keeps at most twice `size` plus the slack elements, and capacity within the same.
-    void bound(size_type size) {
-        const size_type keep = 2 * size + detail::vector_slack;
-        if (items_.size() > keep) items_.erase(items_.begin() + static_cast<std::ptrdiff_t>(keep), items_.end());
-        if (items_.capacity() > keep) items_.shrink_to_fit();
     }
 
     // Replaces the elements with [first, last): live and kept elements are assigned in place, so
@@ -1426,10 +1471,11 @@ constexpr bool merge_from(T& msg, wire::reader r, decode_error& err) {
 }
 
 // Resets msg to the default message and keeps its storage for reuse, as protobuf's Clear does:
-// the elements of repeated messages, strings and bytes are reset and kept (tep::repeated), nested
-// messages are reset and kept (tep::box), and strings and vectors keep their capacity. Each
-// container keeps at most about twice what it held plus a little slack (string_slack bytes,
-// vector_slack elements), so memory follows the messages a reused object holds.
+// the elements of repeated messages, strings and bytes are reset and kept (tep::repeated), present
+// nested messages are reset and kept (tep::box), and strings and vectors keep their capacity within
+// twice their size plus a little slack (string_slack bytes, vector_slack elements). Storage that
+// the contents before this clear left unused (kept elements, absent nested messages' storage) is
+// freed, so memory follows the messages a reused object holds.
 template <synthesized_message T>
 constexpr void clear(T& msg) {
     detail::clear_members(msg);
@@ -1440,14 +1486,13 @@ constexpr void clear(T& msg) {
 // elements, strings and nested messages msg held are decoded into again. For decoding many
 // messages into one object, as an endpoint does on every call. r must not point into msg. After a
 // failure msg holds a partial message, which the next parse_from replaces.
-// Memory: what msg holds after a call is what the last message or the one before it decoded into,
-// up to twice that plus a little slack per container: each clear bounds a string or vector by its
-// size before the clear, a repeated field's kept elements by twice its element count plus
-// vector_slack, and resets kept elements and the storage of absent nested messages again, which
-// gives back what they kept from older messages. As in decode, a message of many empty nested
-// messages decodes into about sizeof(element) bytes per 2 bytes of input. A field whose size swings
-// by more than a factor of two between calls gives storage back and allocates it again on each
-// swing.
+// Memory: what msg holds after a call is what this message and the one before it decoded into,
+// within twice each container's size plus a little slack: clear keeps only the storage the previous
+// message used (its elements and present nested messages, reset) and frees what that message left
+// unused. As in decode, a message of many empty nested messages decodes into about sizeof(element)
+// bytes per 2 bytes of input. A field whose size swings by more than a factor of two between calls,
+// or a nested message that is absent in every other call, gives storage back and allocates it
+// again on each swing.
 template <synthesized_message T>
 constexpr bool parse_from(T& msg, wire::reader r, decode_error& err) {
     clear(msg);

@@ -466,11 +466,57 @@ void test_reuse_is_bounded() {
     const Holder small = sparse_holder();
     const auto small_bytes = tep::encode(small);
     for (int k = 0; k < 2; ++k) TEP_CHECK(tep::parse_from(h, tep::wire::reader(small_bytes), err) && h == small);
-    // What remains is the small message and the reset elements kept for reuse, at most twice the
-    // last element count plus 16 per field (about 20 Leafs, 18 Twigs and 18 tag strings here), none
-    // of it sized by the big message, which held over 500 KB.
-    TEP_CHECK(held_capacity(h) <= 8192);
+    // What remains is what the small message uses, reset where it is not live; nothing the big
+    // message (over 500 KB) or the string runs before it held.
+    TEP_CHECK(held_capacity(h) <= 4096);
     TEP_CHECK(tep_test::kept_is_default(h));
+}
+
+// Storage that the previous message left unused is freed at the next clear: retained memory cannot
+// build up across calls from messages that grew different elements, through nesting, nor stay in a
+// nested message that stays absent.
+void test_unused_storage_is_freed() {
+    tep::decode_error err{};
+    Holder h{};
+    for (std::size_t k = 0; k < 16; ++k) {
+        Holder m{};
+        m.many.resize(k + 1);
+        m.many.back().twigs.resize(16);
+        TEP_CHECK(tep::parse_from(h, tep::wire::reader(tep::encode(m)), err) && h == m);
+    }
+    const auto empty = tep::encode(Holder{});
+    for (int k = 0; k < 2; ++k) TEP_CHECK(tep::parse_from(h, tep::wire::reader(empty), err) && h == Holder{});
+    // No element is kept, and the capacity left is within the slack of a cleared vector.
+    TEP_CHECK(h.many.kept_storage().empty() && h.many.capacity() <= tep::detail::vector_slack);
+    TEP_CHECK(held_capacity(h) <= tep::detail::vector_slack * sizeof(Leaf) + 64);
+    Holder with_one{};
+    with_one.one = leaf(1, std::string(100, 'o'), {1});
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(tep::encode(with_one)), err) && h == with_one);
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(empty), err) && h.one.holds_storage() && !h.one.has_value());
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(empty), err) && !h.one.holds_storage());
+    TEP_CHECK(tep_test::kept_is_default(h));
+}
+
+// resize with an element of the same sequence as the value, and the elements that stay when a
+// sequence shrinks to a nonzero size, are what std::vector makes them (run under ASan).
+void test_repeated_references() {
+    tep::repeated<std::string> r;
+    r.push_back(std::string(100, 'x'));
+    r.resize(8, r[0]);  // grows past the storage
+    TEP_CHECK(r.size() == 8 && r[7] == std::string(100, 'x'));
+    tep::repeated<std::string> q;
+    for (int i = 0; i < 40; ++i) q.push_back(std::string(30, 'q'));
+    q.clear();
+    q.resize(2);
+    std::string& first = q[0];
+    q.resize(1);
+    first = "z";
+    TEP_CHECK(q.size() == 1 && q[0] == "z");
+    q.resize(3, q[0]);  // grows past the storage again: the 38 kept beyond 2 were freed
+    TEP_CHECK(q.size() == 3 && q[2] == "z" && q.kept_storage().size() == 3);
+    q.resize(2);
+    q.resize(3, q[0]);  // reuses the kept element, no reallocation
+    TEP_CHECK(q.size() == 3 && q[2] == "z" && tep_test::kept_is_default(q));
 }
 
 // Storage kept for reuse holds no data: after shrinking parses, copies, clears, initializer lists
@@ -485,8 +531,10 @@ void test_kept_storage() {
     TEP_CHECK(tep::parse_from(h, tep::wire::reader(sparse), err) && h == sparse_holder());
     TEP_CHECK(tep_test::kept_is_default(h));
     TEP_CHECK(h.one.holds_storage() && !h.one.has_value() && h.many.kept_storage().size() == 3);
-    // The kept nested message is reused: the same storage holds the next present value.
-    const Leaf* one = h.one.kept_storage();
+    // A nested message present in consecutive calls keeps its storage: the same storage holds the
+    // next value.
+    TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && h == rich_holder());
+    const Leaf* one = &*h.one;
     TEP_CHECK(tep::parse_from(h, tep::wire::reader(rich), err) && h == rich_holder() && &*h.one == one);
     h = sparse_holder();
     TEP_CHECK(h == sparse_holder() && tep_test::kept_is_default(h));
@@ -573,6 +621,8 @@ int main() {
     test_clear();
     test_reuse_is_bounded();
     test_kept_storage();
+    test_unused_storage_is_freed();
+    test_repeated_references();
     test_backward_writer();
     return tep_test::finish("test_reflect");
 }

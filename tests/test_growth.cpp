@@ -15,24 +15,29 @@
 #include <vector>
 
 #include "check.hpp"
+#include "kept_storage.hpp"
 #include "tep/reflect.hpp"
 
 namespace {
 
 std::size_t allocations = 0;
 std::size_t allocated_bytes = 0;
+std::size_t throw_at = 0;  // when nonzero, the allocation with this ordinal throws std::bad_alloc
 
 }  // namespace
 
-void* operator new(std::size_t n) {
+// Out of line, so the optimizer never pairs an inlined malloc with a std::allocator deallocation
+// (-Wmismatched-new-delete).
+[[gnu::noinline]] void* operator new(std::size_t n) {
     ++allocations;
+    if (throw_at != 0 && allocations == throw_at) throw std::bad_alloc();
     allocated_bytes += n;
     void* p = std::malloc(n == 0 ? 1 : n);
     if (p == nullptr) throw std::bad_alloc();
     return p;
 }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+[[gnu::noinline]] void operator delete(void* p) noexcept { std::free(p); }
+[[gnu::noinline]] void operator delete(void* p, std::size_t) noexcept { std::free(p); }
 
 struct growth_proto {
     static constexpr std::string_view text = R"(syntax = "proto3";
@@ -223,10 +228,47 @@ void test_endpoint_slots() {
     TEP_CHECK(allocations_of(small, ok) == 0);
 }
 
+// A copy or a parse that runs out of memory midway leaves a valid message whose kept storage holds
+// no data: each allocation the operation makes fails once, in turn.
+void test_out_of_memory_keeps_storage_clean() {
+    Bag rich{};
+    rich.s = {std::string(40, 'a'), std::string(40, 'b'), std::string(40, 'c')};
+    rich.items.resize(5);
+    rich.v = {1, 2, 3};
+    rich.f = {7, 8};
+    const auto bytes = tep::encode(rich);
+    std::size_t failures = 0;
+    for (std::size_t k = 1; k <= 40; ++k) {
+        Bag dst{};
+        dst.s = {std::string(40, 'x'), std::string(40, 'y')};
+        dst.s.clear();  // two kept strings with storage
+        throw_at = allocations + k;
+        try {
+            dst = rich;
+        } catch (const std::bad_alloc&) {
+            ++failures;
+        }
+        throw_at = 0;
+        TEP_CHECK(tep_test::kept_is_default(dst));
+        Bag parsed = rich;
+        throw_at = allocations + k;
+        try {
+            tep::decode_error err{};
+            (void)tep::parse_from(parsed, tep::wire::reader(bytes), err);
+        } catch (const std::bad_alloc&) {
+            ++failures;
+        }
+        throw_at = 0;
+        TEP_CHECK(tep_test::kept_is_default(parsed));
+    }
+    TEP_CHECK(failures > 0);  // some allocation inside the operations did fail
+}
+
 }  // namespace
 
 int main() {
     test_endpoint_slots();
+    test_out_of_memory_keeps_storage_clean();
     test_together_is_one_allocation();
     test_pieces_grow_geometrically();
     test_malformed_runs();

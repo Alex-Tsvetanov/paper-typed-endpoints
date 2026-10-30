@@ -113,8 +113,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: one question to Alex through the coordinator (R against
-      Q on medium, many-shape compile with reuse); D5 records at the code freeze.
+- [ ] Next: Laptop requests 13 and 14 (compile rerun, pilot 5) at the keep-storage commit; then
+      the paper's runs; D5 records at the code freeze. Alex answered both questions (revision log).
 
 ## Laptop requests
 
@@ -124,8 +124,7 @@ queue; design, scope and pushes still go to Alex.
 1. Done 2026-10-24 on Arch (archive `gap1-a-q4-visit-a1-c0eb9960`, sha256 files match): Arch's
    gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
 2. Done 2026-10-29 (A23 at c525595, `gap44-a-q1-p5-pilot-c2670a4d`, 4b01a015...cc82): within 0.3%.
-3. Done 2026-10-30 (A31 at fce6a17; archive `gap52-a-q2-p5-e2e-run-2bd355f5` sha256 30ed7123...619e).
-   Pilot. Spread at most 1.7%; knee c12 m128; c1 m1 client-bound (about 30k req/s, every arm).
+3. Done 2026-10-30 (A31 at fce6a17; `gap52-a-q2-p5-e2e-run-2bd355f5` 30ed7123...619e): knee c12 m128.
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710),
@@ -151,6 +150,7 @@ queue; design, scope and pushes still go to Alex.
     Pilot. Every build separated: R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5 (4096
     170.0 s, A29 181.2 s); constant evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many
     1.18, 1.32, 1.46 (A29 1.00, 1.20, 1.56; P above 1024 from A38). What reuse still costs is code.
+13. and 14. Ready (keep-storage types): `bench/requests/compile-rerun-5.md`, `e2e-pilot-5.md`.
 
 ## Lab requests
 

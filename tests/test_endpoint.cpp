@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "check.hpp"
+#include "kept_storage.hpp"
 #include "tep/reflect.hpp"
 
 struct greeter_proto {
@@ -138,7 +139,9 @@ struct fill_impl {
     // "fail"), or copies only its string.
     tep::grpc::status Put(const Bag& q, Bag& r) {
         ++calls;
-        if (r == Bag{}) ++default_responses;
+        // Default, and no storage the endpoint kept from an earlier call holds that call's data,
+        // in the response or in the request.
+        if (r == Bag{} && tep_test::kept_is_default(r) && tep_test::kept_is_default(q)) ++default_responses;
         seen.push_back(q);
         if (q.s == "nest" && nested) {
             const Bag before = q;

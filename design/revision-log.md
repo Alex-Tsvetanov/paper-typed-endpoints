@@ -151,9 +151,13 @@ reuse had made R's many-shape compiles slower (A38, A39).
   state per message, overwriting by arrival index, truncation at the end) is removed.
 - Storage kept for reuse holds no data from an earlier message: every kept element and the storage
   of every absent nested message equals its default, at every depth (`tests/kept_storage.hpp`,
-  checked in `test_reflect` and in `fuzz_decode` after every `parse_from`). The memory bound keeps
-  its form: what a reused message holds is what the last message or the one before it decoded
-  into, up to about twice that plus slack per container, plus up to twice a repeated field's
-  element count plus 16 reset elements.
+  checked in `test_reflect`, in the endpoint's handlers and in `fuzz_decode` after every
+  `parse_from`). Memory: what a reused message holds is what this message and the one before it
+  decoded into, within twice each container's size plus a little slack; each clear frees what the
+  previous message left unused (kept elements, the storage of an absent nested message). A fresh
+  review (Opus) of the first version found that kept elements could carry kept elements of their
+  own through nesting, so old messages decided retained memory, and that `resize` broke two
+  `std::vector` guarantees (a value aliasing an element; elements moved by a shrink); both were
+  fixed before any measurement.
 - R medium allocates nothing per call in a steady run of identical requests (`test_allocs`, a count,
   was 27), as Q. The many-shape compile cost is reported as measured, with reuse on.
