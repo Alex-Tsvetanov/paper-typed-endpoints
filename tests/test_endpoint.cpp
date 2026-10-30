@@ -49,6 +49,60 @@ static_assert(greeter_endpoint::path(0) == "/tep.demo.Greeter/SayHello");
 static_assert(greeter_endpoint::path(1) == "/tep.demo.Greeter/SayNothing");
 static_assert(greeter_endpoint::path(2).empty(), "out of range is an empty path");
 
+// A service of 17 rpcs: every path reaches its own handler, and an unknown one is UNIMPLEMENTED.
+struct big_proto {
+    static constexpr std::string_view text = R"(syntax = "proto3";
+package tep.big;
+message Num { int32 v = 1; }
+service Big {
+  rpc R1(Num) returns (Num);
+  rpc R2(Num) returns (Num);
+  rpc R3(Num) returns (Num);
+  rpc R4(Num) returns (Num);
+  rpc R5(Num) returns (Num);
+  rpc R6(Num) returns (Num);
+  rpc R7(Num) returns (Num);
+  rpc R8(Num) returns (Num);
+  rpc R9(Num) returns (Num);
+  rpc R10(Num) returns (Num);
+  rpc R11(Num) returns (Num);
+  rpc R12(Num) returns (Num);
+  rpc R13(Num) returns (Num);
+  rpc R14(Num) returns (Num);
+  rpc R15(Num) returns (Num);
+  rpc R16(Num) returns (Num);
+  rpc R17(Num) returns (Num);
+}
+)";
+};
+
+consteval { tep::define_messages<big_proto>(); }
+
+using Num = tep::message_t<big_proto, "tep.big.Num">;
+
+struct big_impl {
+    Num R1(const Num& q) { return Num{q.v + 1}; }
+    Num R2(const Num& q) { return Num{q.v + 2}; }
+    Num R3(const Num& q) { return Num{q.v + 3}; }
+    Num R4(const Num& q) { return Num{q.v + 4}; }
+    Num R5(const Num& q) { return Num{q.v + 5}; }
+    Num R6(const Num& q) { return Num{q.v + 6}; }
+    Num R7(const Num& q) { return Num{q.v + 7}; }
+    Num R8(const Num& q) { return Num{q.v + 8}; }
+    Num R9(const Num& q) { return Num{q.v + 9}; }
+    Num R10(const Num& q) { return Num{q.v + 10}; }
+    Num R11(const Num& q) { return Num{q.v + 11}; }
+    Num R12(const Num& q) { return Num{q.v + 12}; }
+    Num R13(const Num& q) { return Num{q.v + 13}; }
+    Num R14(const Num& q) { return Num{q.v + 14}; }
+    Num R15(const Num& q) { return Num{q.v + 15}; }
+    Num R16(const Num& q) { return Num{q.v + 16}; }
+    Num R17(const Num& q) { return Num{q.v + 17}; }
+};
+
+using big_endpoint = tep::endpoint<big_proto, "tep.big.Big", big_impl>;
+static_assert(big_endpoint::method_count() == 17);
+
 namespace {
 
 std::string golden(const char* name) { return std::string(TEP_GOLDEN_DIR) + "/" + name; }
@@ -104,10 +158,31 @@ void test_status_paths() {
               tep::grpc::status::internal);
 }
 
+void test_many_rpcs() {
+    big_impl impl;
+    big_endpoint ep{impl};
+    const auto request = tep::encode(Num{100});
+    std::vector<std::byte> response;
+    for (std::int32_t k = 1; k <= 17; ++k) {
+        const std::string path = "/tep.big.Big/R" + std::to_string(k);
+        TEP_CHECK(ep.invoke(path, request, response) == tep::grpc::status::ok);
+        const auto frame = tep::grpc::parse_unary(response);
+        TEP_CHECK(frame.has_value());
+        if (frame) {
+            const auto back = tep::decode<Num>(frame->payload);
+            TEP_CHECK(back && back->v == 100 + k);
+        }
+    }
+    TEP_CHECK(ep.invoke("/tep.big.Big/R18", request, response) == tep::grpc::status::unimplemented);
+    TEP_CHECK(response.empty());
+    TEP_CHECK(ep.invoke("/tep.big.Big/R9", tep_test::bytes({0x08}), response) == tep::grpc::status::internal);
+}
+
 }  // namespace
 
 int main() {
     test_unary_call();
     test_status_paths();
+    test_many_rpcs();
     return tep_test::finish("test_endpoint");
 }

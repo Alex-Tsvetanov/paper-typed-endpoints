@@ -47,7 +47,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   decoder (GCC only, round trip). CTest smoke tests in every preset; `linux-clang-fuzz` builds
   libFuzzer executables.
 - Decoding: up to 16 fields compare inline, larger messages dispatch through field-number tables
-  (613d6fb, 1e4b25d). Unmeasured: nested sizes are recomputed while writing.
+  (613d6fb, 1e4b25d). Unmeasured: nested sizes are recomputed while writing. R loses many from
+  2048 (A29): it emits decode code per field, protoc parses from tables. Rejected on a size proxy,
+  not timed (2026-10-31): table dispatch in invoke (.text +4.5%), out-of-line varint and skip slow
+  paths (+4 to 5%). The trade-off goes to Alex after A31.
 - Constant-evaluation budget (the main design risk). GCC 16's default `-fconstexpr-ops-limit`
   is 33,554,432 operations per outermost evaluation; GCC counts every expression node. A variable
   template first used inside an evaluation shares its counter; forced earlier (a static_assert),
@@ -129,8 +132,8 @@ queue; design, scope and pushes still go to Alex.
    4b01a015...cc82; at c525595). Medians: R 2.3/2.5 s at 16 (wide/many), 28.3/34.8 s at 1024;
    P 7.7/7.8 s, 26.8/33.2 s, 167/116 s at 4096. Replicates within 0.3%. At 1024, R spends 62 to
    78% in code generation, 11/21% in constant evaluation. Protobuf build on the laptop 91 s.
-3. Ready 2026-10-31: `bench/requests/e2e-pilot.md` (arms S, R, P; h2load on Arch; window
-   steadiness and the saturating load). h2load and the server checked functionally on the desktop.
+3. Launched 2026-10-31 as A31 (build, then runs) at fce6a17: `bench/requests/e2e-pilot.md` (arms S,
+   R, P; h2load on Arch; window steadiness, saturating load). Review green after fce6a17.
 4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. Done 2026-10-31 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
