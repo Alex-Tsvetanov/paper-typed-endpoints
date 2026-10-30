@@ -135,7 +135,11 @@ queue; design, scope and pushes still go to Alex.
    `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
 5. Done 2026-10-31 (A27 at 4d205b4, archive `gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710).
 6. Done 2026-10-31 (A28 at 614c9f4, archive `gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
-7. Running as A29 (`bench/requests/compile-rerun-3.md` at fa60375): hybrid decoder, R and P alternating.
+7. Done 2026-10-31 (A29 at fa60375, archive `gap50-a-q1-p5-rerun3-4b1cde4a`, sha256 345bea80...bf09):
+   51/51 built and checked. P across A23, A27, A29 within 0.9% per cell (run-to-run drift). R many
+   back to A27 (1024: 32.73 s, 2048: 71.60 s; A28 33.94, 73.88), R wide kept A28's gain. Same run,
+   R/P: 0.29 and 0.30 at 16; wide 0.86, 0.90, 0.77 (1024, 2048, 4096); many 1.00, 1.20, 1.56 (R
+   loses from 2048; many 4096 at the raised limit). RSS: R lower for wide, 2.9 times P at many 4096.
    Pilot, not a result. R compile medians A27 to A28 (3 replicates each): wide 1024 26.43 to 22.81 s,
    2048 75.62 to 53.58 s, 4096 246.90 to 126.62 s (code generation 229 to 106 s in the time
    report); many 1024 32.84 to 33.94 s, 2048 71.68 to 73.88 s (+3%, ranges apart); 16 fields equal.

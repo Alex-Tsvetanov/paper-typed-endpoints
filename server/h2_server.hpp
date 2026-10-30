@@ -39,8 +39,10 @@ public:
     // From any thread or from a signal handler.
     void stop() noexcept;
 
-    // Calls answered, by grpc-status code (the index), summed over the workers. Read it after run()
-    // has returned; a load generator counts HTTP responses only, and these say which were errors.
+    // Calls dispatched, by grpc-status code (the index), summed over the workers: counted when the
+    // response is submitted, before it is written, so a client that hangs up early may not receive
+    // all of them. Read it after run() has returned; a load generator counts HTTP responses only,
+    // and these say which were gRPC errors.
     using call_counts = std::array<std::uint64_t, 17>;
     [[nodiscard]] call_counts calls() const;
 

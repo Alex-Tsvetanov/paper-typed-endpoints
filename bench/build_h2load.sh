@@ -13,7 +13,8 @@
 set -euo pipefail
 ng_src=$(cd "$1" && pwd)
 ev_src=$(cd "$2" && pwd)
-prefix=$3
+mkdir -p "$3"
+prefix=$(cd "$3" && pwd)
 jobs=${4:-4}
 gcc_root=${GCC:-$HOME/opt/gcc-16.2.0}
 

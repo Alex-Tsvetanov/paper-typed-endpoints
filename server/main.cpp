@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
 #if TEP_E2E_ARM_R
         options.make_arm = e2e::make_reflection_arm;
 #else
-        std::fprintf(stderr, "tep_server: arm R is not built (this compiler has no C++26 reflection)\n");
+        std::fprintf(stderr, "tep_server: arm R is not built (transport-only build, or no C++26 reflection)\n");
         return 2;
 #endif
     } else if (arm == "P") {

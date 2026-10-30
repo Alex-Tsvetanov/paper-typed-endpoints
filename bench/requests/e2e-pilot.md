@@ -32,8 +32,10 @@ compared arm). Payloads: small (Person, 34 bytes) and medium (Order, 953 bytes).
    `build_h2load.sh` prints `h2load nghttp2/1.70.0` and writes `~/opt/h2load-1.70.0/logs/packages.txt`
    (`pacman -Q openssl zlib`). ctest must pass 20 of 20; its `bodies` test writes the request
    bodies `build/linux-gcc1620-e2e-release/server/bodies/small.bin` (39 bytes) and `medium.bin`
-   (958 bytes). On the desktop's dev image all of this passed, and h2load got 2000 of 2000 calls
-   through each arm and payload with the server counting 2000 ok and 0 failed.
+   (958 bytes). On the desktop's dev image all of this passed, and h2load with `-n 2000` (fixed
+   count, so every request completes) got 2000 of 2000 calls through each arm and payload with the
+   server counting 2000 ok and 0 failed. A fresh review then ran `-D` windows there and confirmed
+   the bound in Checks (counts only).
 
 ## Runs (timed; the quiet check at job start)
 
@@ -49,10 +51,14 @@ win() {  # arm payload c m k [extra h2load args]: one 10 s window
     -H 'content-type: application/grpc' -H 'te: trailers' "${@:6}" \
     "http://127.0.0.1:50051/bench.e2e.Echo/$method" > "$OUT/h2load-$1-$2-c$3-m$4-$5.txt" 2>&1
 }
-for arm in S R P; do
-  for payload in small medium; do
+# The order of R and P alternates between payloads, so neither always runs last (S, the
+# reference, runs first each time).
+for payload in small medium; do
+  arms="S R P"; [ "$payload" = medium ] && arms="S P R"
+  for arm in $arms; do
     taskset -c 14 "$B/tep_server" --arm "$arm" --port 50051 --cpus 14 > "$OUT/server-$arm-$payload.log" 2>&1 &
-    pid=$!   # wait until the log holds "tep_server: arm"
+    pid=$!
+    for _ in $(seq 100); do grep -q "^tep_server: arm" "$OUT/server-$arm-$payload.log" && break; kill -0 "$pid" || break; sleep 0.1; done
     win "$arm" "$payload" 12 32 warmup                       # discarded
     for k in 1 2 3; do win "$arm" "$payload" 1 1 "$k" --log-file="$OUT/latency-$arm-$payload-$k.tsv"; done
     for cm in "12 1" "12 8" "12 32" "12 128" "48 32" "48 128"; do
@@ -69,8 +75,12 @@ per-request latencies logged) and 18 throughput windows (6 loads, 3 each), all 1
 ## Checks
 
 - Every h2load file: `0 failed, 0 errored, 0 timeout` and all status codes 2xx.
-- Every server log's last line: `failed 0`, and `calls ok` equal to the sum of `succeeded` over
-  that run's h2load files.
+- Every server log's last line: `failed 0`, and `calls ok` between the sum S of `succeeded` over
+  that run's h2load files (the warm-up included) and S plus the sum over those windows of 2 c m.
+  With `-D`, h2load counts requests only while its main phase runs (h2load.cc 1.70.0,
+  `submit_request` and `on_stream_close`): requests still in flight when a window ends are
+  counted neither succeeded nor failed, though the server may have answered them; the factor 2
+  also covers requests sent in the instant before the main phase starts.
 
 ## Outputs
 

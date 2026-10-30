@@ -15,7 +15,8 @@
 # Usage: build_deps_msvc.sh <nghttp2 download folder> <nghttp2 prefix> [jobs]
 set -euo pipefail
 ng_src=$(cd "$1" && pwd)
-ng_prefix=$(cygpath -m "$2")
+mkdir -p "$2"
+ng_prefix=$(cd "$2" && pwd -W)
 jobs=${3:-4}
 command -v cl > /dev/null || { echo "build_deps_msvc.sh: cl is not on PATH; run inside vcvars64" >&2; exit 1; }
 command -v ninja > /dev/null || { echo "build_deps_msvc.sh: ninja is not on PATH" >&2; exit 1; }
