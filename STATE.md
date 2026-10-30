@@ -148,9 +148,9 @@ queue; design, scope and pushes still go to Alex.
    1.01 to 1.11) and Q on small (1.005 to 1.03); Q beats R on medium (0.99, then 0.84 to 0.91 from c12
    m8), but the later arm lost in both orders. Profile proxy, user cycles per medium request: R 9,178
    (A33 10,291), P 9,535, Q 7,927; libc R 16.3%, Q 4.7%; R's own code ties Q's: the gap is allocation.
-10. A36 (`bench/requests/compile-rerun-4.md`): refused before launch on the coordinator's side; to
-    run at the back-writer commit if ready in time, else at 7997c9c (R and P swap on even replicates).
-11. Ready: `bench/requests/e2e-pilot-4.md`, pilot 4 (S, R, Q and P; R and Q twice per payload, mirrored).
+10. Queued as chain A38 step 1 at 30818a5 (`compile-rerun-4.md`, job p5-compile-rerun4b-l; A36 was
+    refused before launch on the coordinator's side). R and P swap on even replicates.
+11. Queued as A38 steps 2 and 3 at 30818a5: `bench/requests/e2e-pilot-4.md` (scripts: I review first).
 
 ## Lab requests
 
