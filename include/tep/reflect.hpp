@@ -1325,25 +1325,50 @@ constexpr bool operator==(const T& a, const T& b) {
 
 namespace detail {
 
-consteval std::meta::info find_handler(std::meta::info impl, std::string_view name, std::string_view service) {
-    std::meta::info found{};
-    int count = 0;
-    for (const auto m : std::meta::members_of(impl, std::meta::access_context::unchecked())) {
-        if (!std::meta::is_function(m) || !std::meta::has_identifier(m)) continue;
-        if (std::meta::identifier_of(m) != name) continue;
-        if (!std::meta::is_public(m))
-            fail("tep: handler member function '" + std::string(name) + "' for rpc " + std::string(service) + "." +
-                 std::string(name) + " is not public");
-        found = m;
-        ++count;
+// The handler of every rpc of the service, in rpc order. Impl's member functions are listed once
+// and sorted by name, and each rpc's name is found by binary search: listing them once per rpc made
+// the check quadratic in the number of rpcs (A38: constant evaluation tripled from 1024 to 2048
+// fields in the many shape).
+template <schema_source Schema, fixed_string Service, class Impl>
+consteval std::vector<std::meta::info> make_handlers() {
+    struct named {
+        std::string_view name;
+        std::size_t position;  // declaration order, so the first of a name reports first
+        std::meta::info member;
+    };
+    std::vector<named> fns;
+    for (const auto m : std::meta::members_of(^^Impl, std::meta::access_context::unchecked()))
+        if (std::meta::is_function(m) && std::meta::has_identifier(m))
+            fns.push_back({std::meta::identifier_of(m), fns.size(), m});
+    const auto before = [](const named& a, const named& b) {
+        return a.name < b.name || (a.name == b.name && a.position < b.position);
+    };
+    std::sort(fns.begin(), fns.end(), before);
+    const service_meta svc = tables<Schema>.services[find_service<Schema>(Service.view())];
+    const std::string service(Service.view());
+    std::vector<std::meta::info> out;
+    for (std::uint32_t k = svc.first_rpc; k < svc.first_rpc + svc.rpc_count; ++k) {
+        const std::string_view name = table_string(tables<Schema>, tables<Schema>.rpcs[k].name);
+        auto it = std::lower_bound(fns.begin(), fns.end(), name,
+                                   [](const named& a, std::string_view n) { return a.name < n; });
+        auto end = it;
+        while (end != fns.end() && end->name == name) ++end;
+        for (auto p = it; p != end; ++p)
+            if (!std::meta::is_public(p->member))
+                fail("tep: handler member function '" + std::string(name) + "' for rpc " + service + "." +
+                     std::string(name) + " is not public");
+        if (it == end)
+            fail("tep: handler type '" + std::string(std::meta::display_string_of(^^Impl)) +
+                 "' has no member function named '" + std::string(name) + "' for rpc " + service + "." +
+                 std::string(name));
+        if (end - it > 1) fail("tep: handler member function '" + std::string(name) + "' is overloaded");
+        out.push_back(it->member);
     }
-    if (count == 0)
-        fail("tep: handler type '" + std::string(std::meta::display_string_of(impl)) +
-             "' has no member function named '" + std::string(name) + "' for rpc " + std::string(service) + "." +
-             std::string(name));
-    if (count > 1) fail("tep: handler member function '" + std::string(name) + "' is overloaded");
-    return found;
+    return out;
 }
+
+template <schema_source Schema, fixed_string Service, class Impl>
+inline constexpr auto handlers = std::define_static_array(make_handlers<Schema, Service, Impl>());
 
 // Form A:  Response Method(const Request&)
 template <class Impl, class Req, class Resp, std::meta::info H>
@@ -1365,7 +1390,7 @@ consteval bool verify_handlers() {
     template for (constexpr std::uint32_t k : std::define_static_array(iota(svc.first_rpc, svc.rpc_count))) {
         constexpr rpc_meta r = tables<Schema>.rpcs[k];
         constexpr std::string_view name = table_string(tables<Schema>, r.name);
-        constexpr std::meta::info h = find_handler(^^Impl, name, Service.view());
+        constexpr std::meta::info h = handlers<Schema, Service, Impl>[k - svc.first_rpc];
         using Req = message<Schema, r.request>;
         using Resp = message<Schema, r.response>;
         if constexpr (!returns_response<Impl, Req, Resp, h> && !fills_response<Impl, Req, Resp, h>) {
@@ -1453,7 +1478,7 @@ private:
 
     template <std::uint32_t K>
     static consteval std::meta::info handler_of() {
-        return detail::find_handler(^^Impl, table_string(tables<Schema>, tables<Schema>.rpcs[K].name), Service.view());
+        return detail::handlers<Schema, Service, Impl>[K - service.first_rpc];
     }
 
     template <std::uint32_t K>

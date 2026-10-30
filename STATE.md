@@ -78,13 +78,12 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   each of the four toolchains above `-v D:\Dev\toolchains\<name>-linux[-asan]:/home/dev/opt/<name>[-asan]:ro`,
   `-w <repo> papers-dev:arch-2026-10-23 bash tools/dev_linux_all.sh <presets>` (`MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results (pass or fail only), back writer, with interop: `linux-gcc1620-{e2e,e2e-release}` 23
-  of 23 (`allocs` Skipped under ASan), `mingw-gcc1620-e2e-release` 22 of 22, `fuzz_decode` 300,000
+- Results (pass or fail only), handler table, with interop: `linux-gcc1620-{e2e,e2e-release}` 25
+  of 25 (`allocs` Skipped under ASan), `mingw-gcc1620-e2e-release` 24 of 24, `fuzz_decode` 300,000
   mutations under ASan+UBSan; `msvc-e2e-asan` 9 of 9 at 60eff0e (transport only).
 - Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
   the encoder matches them byte for byte for all scalar types, enums, nested and repeated fields.
-- TSan: not run yet; the server has threads (`test_server`, two workers). Needs a TSan preset, a TSan
-  protobuf, and `--security-opt seccomp=unconfined` in the container.
+- TSan: not run yet (server threads); needs a preset, a TSan protobuf, `seccomp=unconfined` in docker.
 
 ## Toolchain facts (desktop, 2026-10-23)
 
@@ -115,8 +114,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: attribute the reuse compile cost (proxies); pilot 4 (A38b); then one question to Alex (R
-      against Q on medium, many-shape compile with reuse); D5 records at the code freeze.
+- [ ] Next: pilot 4 (A38b); Laptop request 12 (handler table); then one question to Alex (R against
+      Q on medium, many-shape compile with reuse); D5 records at the code freeze.
 
 ## Laptop requests
 
@@ -150,7 +149,8 @@ queue; design, scope and pushes still go to Alex.
     +24%; wide +6, +3.5, 0, -2.4%. R/P many 0.33, 1.24, 1.52, 1.92 (R loses from 1024); wide 0.30,
     0.89, 0.90, 0.74. R many 1024: instantiation 5.2 to 8.0 s, code generation 21.6 to 26.5 s,
     parsing unchanged, RSS 947 to 1,234 MiB. The reuse code (one slot per rpc, replace mode). Pilot.
-11. Queued as A38 steps 2 and 3 at 30818a5: `bench/requests/e2e-pilot-4.md` (scripts: I review first).
+11. Queued as A38b at 30818a5: `bench/requests/e2e-pilot-4.md` (scripts reviewed at Papers 71059e0).
+12. Ready: `bench/requests/compile-handlers.md`, R many 1024 to 4096 at 30818a5 and the handler table.
 
 ## Lab requests
 

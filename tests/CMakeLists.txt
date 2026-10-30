@@ -75,6 +75,8 @@ if(TEP_HAVE_REFLECTION)
   tep_negative(streaming tep_reflect "tep: schema error at line 3, column 19: streaming rpcs are not supported")
   tep_negative(missing_handler tep_reflect "has no member function named 'Pong' for rpc p.S.Pong")
   tep_negative(wrong_signature tep_reflect "handler member function 'Ping' must be 'Response Ping.const Request&.'")
+  tep_negative(private_handler tep_reflect "handler member function 'Pong' for rpc p.S.Pong is not public")
+  tep_negative(overloaded_handler tep_reflect "handler member function 'Ping' is overloaded")
   tep_negative(no_reflection tep "needs C..26 static reflection .P2996.")
 else()
   # Not silent: CTest lists this test as skipped, with the reason.

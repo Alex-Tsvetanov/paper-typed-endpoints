@@ -117,3 +117,16 @@ Decided by this session under D2 (no new question; decision notice to the coordi
 - A35 ran each arm once per payload; R and Q swapped places only between payloads, and the later
   arm lost R against Q in both. The next pilot runs R and Q twice per payload in mirrored order
   (`bench/requests/e2e-pilot-4.md`).
+
+## 2026-10-30. Handler lookup in one pass
+
+Decided by this session under D2 (no new question; decision notice to the coordinator).
+
+- A38 measured R's many-shape compiles 24 to 27% slower than A29, after message reuse, and
+  constant evaluation growing about three times from many 1024 to many 2048, in A29 and A38 alike.
+  Each rpc's handler was found by listing all of the handler type's member functions, once per
+  rpc in the handler check and, since the reuse commit, once more per rpc in the endpoint.
+  `detail::handlers` now lists them once, sorted by name, and finds each rpc's handler by binary
+  search. The diagnostics keep their text; two negative tests now cover the private and the
+  overloaded handler. Generated code is unchanged (same .text and GIMPLE at many 1024).
+- Its compile effect is measured on the laptop (`bench/requests/compile-handlers.md`).
