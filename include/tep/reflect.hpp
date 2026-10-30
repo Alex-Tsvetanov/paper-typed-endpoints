@@ -821,6 +821,28 @@ constexpr bool merge_from(T& msg, wire::reader r, decode_error& err);
 
 namespace detail {
 
+// Room for `extra` more elements, growing at least geometrically: an exact reservation for each
+// piece of a field that arrives in many pieces (packed chunks, elements between other fields)
+// would make decoding quadratic in the input.
+template <class V>
+constexpr void reserve_more(V& v, std::size_t extra) {
+    if (v.capacity() - v.size() < extra) v.reserve(std::max(v.size() + extra, 2 * v.capacity()));
+}
+
+// The elements of the repeated length-delimited field F that directly follow in r, each under
+// F's tag. Serializers write a repeated field's elements together, so reserving for them takes
+// one allocation instead of the vector's growth. A stop at anything else only makes the
+// reservation smaller; every element is still checked when it is decoded.
+template <field_meta F>
+constexpr std::size_t following_elements(wire::reader r) noexcept {
+    std::size_t n = 0;
+    std::uint64_t tag = 0;
+    std::span<const std::byte> s;
+    wire::read_error re{};
+    while (!r.done() && r.varint(tag, re) && tag == tag_of<F> && r.length_delimited(s, re)) ++n;
+    return n;
+}
+
 // One occurrence of a known field. A wire type that does not match the field is handled as an
 // unknown field (skipped), as libprotobuf does. Repeated numeric fields accept both the packed
 // and the unpacked encoding.
@@ -832,6 +854,7 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
         std::span<const std::byte> s;
         if (!r.length_delimited(s, re)) return err = from_read(re), false;
         if constexpr (F.repeated) {
+            if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r));
             v.emplace_back();
             return merge_from(v.back(), wire::reader(s), err);
         } else {
@@ -850,7 +873,13 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
                     if constexpr (ewt == wire::wire_type::i32 || ewt == wire::wire_type::i64) {
                         constexpr std::size_t width = ewt == wire::wire_type::i32 ? 4 : 8;
                         if (s.size() % width != 0) return err = decode_error::truncated, false;
-                        v.reserve(v.size() + s.size() / width);
+                        reserve_more(v, s.size() / width);
+                    } else {
+                        // One varint ends at each byte below 0x80: exact for valid input, and
+                        // malformed input fails below.
+                        std::size_t n = 0;
+                        for (const std::byte b : s) n += (std::to_integer<unsigned>(b) & 0x80u) == 0 ? 1u : 0u;
+                        reserve_more(v, n);
                     }
                     wire::reader sub(s);
                     while (!sub.done()) {
@@ -864,6 +893,9 @@ constexpr bool read_field(V& v, wire::reader& r, wire::wire_type wt, decode_erro
             if (wt != ewt) return r.skip(wt, F.number, re) || (err = from_read(re), false);
             E e{};
             if (!read_value<S>(r, e, err)) return false;
+            if constexpr (ewt == wire::wire_type::len) {  // strings and bytes
+                if (v.size() == v.capacity()) reserve_more(v, 1 + following_elements<F>(r));
+            }
             v.push_back(std::move(e));
             return true;
         } else {

@@ -40,7 +40,7 @@ foreach(name schema wire grpc)
 endforeach()
 
 if(TEP_HAVE_REFLECTION)
-  foreach(name reflect endpoint)
+  foreach(name reflect endpoint growth)
     add_executable(test_${name} test_${name}.cpp)
     target_link_libraries(test_${name} PRIVATE tep_reflect)
     tep_test_target(test_${name})

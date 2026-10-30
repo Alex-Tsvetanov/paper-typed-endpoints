@@ -3,7 +3,7 @@
 # Arm P needs the pinned protobuf runtime and protoc under TEP_PROTOBUF_ROOT (bench/build_protobuf.sh);
 # arm R also needs the reflection layer. TEP_E2E_TRANSPORT_ONLY builds the transport with arm S
 # alone, without protobuf: the Windows sanitizer record (MSVC ASan cannot start protoc's generated
-# code; Alex, 2026-10-31, design/revision-log.md).
+# code; Alex, 2026-10-30, design/revision-log.md).
 if(TEP_E2E_TRANSPORT_ONLY)
   set(TEP_E2E_ARM_P 0)
   set(TEP_E2E_ARM_R 0)
@@ -68,6 +68,16 @@ if(TEP_E2E_ARM_R)
   target_link_libraries(test_arms PRIVATE e2e_arms)
   tep_test_target(test_arms)
   add_test(NAME arms COMMAND test_arms)
+
+  # Heap allocations per call of each arm (a count, never a timing). Linux only: on Windows a
+  # replaced operator new does not reach allocations made inside the C++ runtime's DLL.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(test_allocs test_allocs.cpp)
+    target_include_directories(test_allocs PRIVATE ${PROJECT_SOURCE_DIR}/tests)
+    target_link_libraries(test_allocs PRIVATE e2e_arms)
+    tep_test_target(test_allocs)
+    add_test(NAME allocs COMMAND test_allocs)
+  endif()
 endif()
 
 # The transport and the benchmark server. libnghttp2 is the pinned static build under
