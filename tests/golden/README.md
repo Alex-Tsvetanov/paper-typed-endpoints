@@ -10,6 +10,9 @@ bfa32b62a446). That `protoc` is a development oracle only, not the pinned versio
 paper. Before any freeze the files are regenerated with the pinned `protoc` (STATE.md, Lab
 request 1), and any difference is investigated.
 
+Regenerated on 2026-10-31 with the pinned `libprotoc 36.2` (the release binary of `bench/pins.md`)
+into a copy of this folder: all three files are byte for byte identical to the ones below.
+
 | File | sha256 |
 |---|---|
 | everything.bin | 31166881e8a84d9e4c5d6b609c8d96460c5ea188e9ac88a0a41d0c796e904c23 |

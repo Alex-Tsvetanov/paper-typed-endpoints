@@ -1,10 +1,12 @@
 // Copyright 2026 Alex Tsvetanov
 // SPDX-License-Identifier: Apache-2.0
 //
-// Writes the load generator's request bodies: each benchmark request message behind its 5-byte
-// gRPC prefix, the bytes h2load posts with --data. Each file is read back and must frame and parse.
+// Writes the load generators' request bodies: each benchmark request message behind its 5-byte
+// gRPC prefix, the bytes h2load posts with --data, and the message alone, the bytes ghz sends with
+// --binary-file. Each file is read back and must frame (the .bin) and parse.
 //
-// Usage: write_bodies <folder>   writes small.bin (a Person) and medium.bin (an Order)
+// Usage: write_bodies <folder>   writes small.bin and small.pb (a Person), medium.bin and medium.pb
+// (an Order)
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -21,24 +23,34 @@
 
 namespace {
 
+// Writes bytes to a file and returns what reading it back gives, empty if writing failed.
+std::string write_and_read(const std::filesystem::path& file, const std::string& bytes) {
+    {
+        std::ofstream out(file, std::ios::binary);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        if (!out) return {};
+    }
+    std::ifstream in(file, std::ios::binary);
+    return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+// <stem>.bin holds the framed message, <stem>.pb the message alone.
 template <class M>
-bool write_body(const std::filesystem::path& file, const std::string& message) {
+bool write_body(const std::filesystem::path& folder, const char* stem, const std::string& message) {
     std::string body(tep::grpc::prefix_size, '\0');
     tep::grpc::write_prefix(reinterpret_cast<std::byte*>(body.data()), false,
                             static_cast<std::uint32_t>(message.size()));
     body += message;
-    {
-        std::ofstream out(file, std::ios::binary);
-        out.write(body.data(), static_cast<std::streamsize>(body.size()));
-        if (!out) return false;
-    }
-    std::ifstream in(file, std::ios::binary);
-    const std::string back((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string back = write_and_read(folder / (std::string(stem) + ".bin"), body);
     const auto frame =
         tep::grpc::parse_unary(std::span<const std::byte>(reinterpret_cast<const std::byte*>(back.data()), back.size()));
     M parsed;
-    return back == body && frame && !frame->compressed &&
-           parsed.ParseFromArray(frame->payload.data(), static_cast<int>(frame->payload.size()));
+    const bool framed = back == body && frame && !frame->compressed &&
+                        parsed.ParseFromArray(frame->payload.data(), static_cast<int>(frame->payload.size()));
+    const std::string bare = write_and_read(folder / (std::string(stem) + ".pb"), message);
+    M parsed_bare;
+    return framed && bare == message && parsed_bare.ParseFromString(bare) &&
+           parsed_bare.SerializeAsString() == parsed.SerializeAsString();
 }
 
 }  // namespace
@@ -55,8 +67,8 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "write_bodies: cannot create %s\n", folder.string().c_str());
         return 1;
     }
-    const bool small = write_body<bench::e2e::Person>(folder / "small.bin", e2e::small_request());
-    const bool medium = write_body<bench::e2e::Order>(folder / "medium.bin", e2e::medium_request());
-    std::printf("write_bodies: small.bin %s, medium.bin %s\n", small ? "ok" : "FAILED", medium ? "ok" : "FAILED");
+    const bool small = write_body<bench::e2e::Person>(folder, "small", e2e::small_request());
+    const bool medium = write_body<bench::e2e::Order>(folder, "medium", e2e::medium_request());
+    std::printf("write_bodies: small %s, medium %s\n", small ? "ok" : "FAILED", medium ? "ok" : "FAILED");
     return small && medium ? 0 : 1;
 }
