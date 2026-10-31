@@ -133,13 +133,10 @@ queue; design, scope and pushes still go to Alex.
     1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
 11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`, `gap60-a-q2/q3-*`). Pilot. 264 windows; no order
     effect. Q beat R on medium from c12 m8 (0.94 to 0.85). Medium cycles:u per request R 8,902, Q 7,751.
-12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`; `gap61-a-q1-p5-handlers-79de7859` 5ab64c2a...29f4).
-    Pilot. R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5, every build separated; constant
-    evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many 1.18, 1.32, 1.46.
+12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`). Pilot. R many 1024 to 4096 -4.9, -13.1, -24.3%.
 13. Done 2026-10-31 (A40 at db1f31c, `compile-rerun-5.md`; `gap62-a-q1-p5-rerun5-96943287` 3ce6458f...e246).
-    Pilot. 51/51; P within 0.8% of A38. R many (1024, 2048, 4096) against A39 -3.4, -2.2, -0.7%, against
-    A29 (before reuse) +14.4, +7.9, -6.8%: the front end shrank (no replace mode), code generation did
-    not. R wide (16 to 4096) against A38 +0.9, +0.7, +1.5, +1.6%, every build separated: a loss. R/P many
+    Pilot. 51/51; P within 0.8% of A38. R many against A29 (before reuse) +14.4, +7.9, -6.8%; R wide
+    against A38 +0.9 to +1.6%, every build separated: a loss. R/P many
     0.32, 1.14, 1.29, 1.45; wide 0.31, 0.90, 0.92, 0.76. RSS R many 4096 4,059 MiB, 2.1 times P (A29 2.9).
 14. Done 2026-10-31 (A40 at db1f31c, `e2e-pilot-5.md`; `gap62-a-q2-p5-e2e5-build-7c02aacf` b380de1a...7d8d,
     `gap62-a-q3-p5-e2e5-run-ccf9cf23` b566c31e...7744). Pilot. ctest 24 of 24; R medium 0 allocations; 264
@@ -148,7 +145,10 @@ queue; design, scope and pushes still go to Alex.
     m128 (1.016, overlap). R/P small 1.03 to 1.09, medium 1.06 to 1.25. Against pilot 4: S, P, Q within 2%,
     R medium +3.6 to +19%. Medium cycles:u per request R 7,659, Q 7,820; libc R 455. Clearing kept
     storage (`clear_within_slack`, `truncate`) is 3.5% of R's medium cycles. Analysis: `bench/pilot/`.
-15. Windows pilot (`e2e-pilot-windows.md`, at 40e9211): MinGW builds, pilot 5's design with ghz; A43b (tools 8a7ea7d) 2026-10-31 15:53; its build exited 0 at 15:58, the run followed.
+15. Done 2026-10-31 (A43b at 40e9211; build 3c5e775c...1164, run 6103414c...1239; `pilot_e2e_windows.py`).
+    Pilot. ctest 23/23, 264 windows, checks pass. c12 m128 bounded by ghz (97% of 12 CPUs; server 24-62%):
+    arms within 1%. c1 m1 medium R/P 1.021 separated, R/Q 1.008. c12 m1 (server 98%): medium P 45.0k > S
+    42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
 16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; sent for a dry run.
 17. Windows compile pilot (`compile-pilot-windows.md`): A40's 51 builds and the 60 of 18, MinGW, `--cpu 14`.
 18. Linux compile pilot of sizes 32 to 512 (`compile-gap-sizes.md`): 60 builds; with 16's dry run as A45 (tools d107063).

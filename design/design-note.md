@@ -184,6 +184,9 @@ golden vectors in `tests/golden/` are regenerated with the pinned `protoc` befor
   real-world schema with them can be measured.
 - Windows depends on decision 1 in STATE.md.
 - Compiler defects found during development (section 2) are reported in the paper's threats.
+- Windows end to end (Laptop request 15): at c12 m128 ghz, not the server, bounds the rate; at c12 m1,
+  where the server saturates, P outran S (the transport with no codec) on the medium payload. Cause
+  unknown; a Windows transport regime, reported as a threat.
 
 ## 9. Decisions (Alex, 2026-10-23)
 

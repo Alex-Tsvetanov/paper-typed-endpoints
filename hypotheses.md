@@ -94,8 +94,10 @@ c12 m128. For each payload and replicate the four arms run in a seeded random or
 value in a cell is the mean of its 4 windows' requests per second. Ten replicates per OS (D9).
 
 Measure. Primary: requests per second, completed OK calls per window second. Secondary,
-descriptive: latency median and p99 at c1 m1 (Linux: h2load's per-request log; Windows: ghz's
-percentiles); the server's CPU share per window (`labrec.process_shares`); the server's peak
+descriptive: at c1 m1, on Linux the latency median and p99 from h2load's per-request log; on
+Windows the mean call cycle, 1/(requests per second), which includes ghz's own time per call
+(ghz's percentiles on Windows are quantized to about 0.5 ms, revision log 2026-10-31); the
+server's CPU share per window (`labrec.process_shares`); the server's peak
 memory, read by the harness before it stops the server, which is the peak resident set on Linux
 (`VmHWM`) and the peak working set on Windows (`PeakWorkingSetSize`).
 
@@ -114,6 +116,10 @@ Hypotheses. Contrasts R against P and R against Q.
 - Known on Linux from Laptop request 14 (pilot 5): every E1 and E2 contrast separated in the
   claimed direction (R/P small 1.084, medium 1.234; R/Q small 1.046, medium 1.028 at c12 m128;
   medium R/P 1.057, R/Q 1.023 at c1 m1). Open: section 7, item 3.
+- On Windows, in the pilot (Laptop request 15), ghz bounded the c12 m128 rows: it used about 97%
+  of its 12 CPUs while the server used 24% to 62% of one, and every arm, S included, served within
+  1% of the others. Those rows show the load generator's limit; their ratios do not compare the
+  servers, and the paper says so wherever they appear.
 
 Test. Exact one-sided paired sign test over the 10 replicates (a tie counts against). All
 directional end-to-end contrasts of both OSes form one family, m at most 12; Holm at alpha 0.05
