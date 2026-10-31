@@ -119,10 +119,12 @@ public:
         }
         return *this;
     }
+    // o's storage is taken before this box's is freed, so o may live inside it.
     box& operator=(box&& o) noexcept {
         if (this != &o) {
+            const std::uintptr_t taken = std::exchange(o.bits_, 0);
             destroy();
-            bits_ = std::exchange(o.bits_, 0);
+            bits_ = taken;
         }
         return *this;
     }
@@ -138,6 +140,8 @@ public:
 
     [[nodiscard]] bool has_value() const noexcept { return (bits_ & present) != 0; }
     explicit operator bool() const noexcept { return has_value(); }
+    // Precondition: has_value(). Debug builds assert it; in a release build an absent box that
+    // keeps storage returns that storage, and a write through it would reach the next emplace().
     T& operator*() noexcept {
         assert(has_value());
         return *stored();
@@ -267,11 +271,14 @@ public:
         if (this != &o) assign(o.begin(), o.end());
         return *this;
     }
+    // o's elements are taken before this sequence's are freed, so o may live inside one of them.
     repeated& operator=(repeated&& o) noexcept {
         if (this != &o) {
-            items_ = std::move(o.items_);
-            n_ = std::exchange(o.n_, 0);
+            std::vector<T> taken = std::move(o.items_);
+            const size_type n = std::exchange(o.n_, 0);
             o.items_.clear();
+            items_ = std::move(taken);
+            n_ = n;
         }
         return *this;
     }
@@ -1685,7 +1692,11 @@ private:
     // that calls invoke again gets a slot of its own; the slot comes back only after a call that
     // succeeded with a request and a response of at most reuse_limit_bytes, and is released
     // otherwise (a failure, an exception, a large call). The response reaches a handler already
-    // cleared; clearing it or its fields again gives up the storage kept for reuse.
+    // cleared; clearing it or its fields again, or copy-assigning a message into it, is a second
+    // shrink and frees the kept storage that message does not reuse. Reuse therefore follows the
+    // shape of the previous call: requests that alternate between more and fewer elements, or
+    // with and without a nested message, allocate on each swing back up (protobuf keeps every
+    // cleared object instead).
     static constexpr std::size_t reuse_limit_bytes = 64 * 1024;
 
     template <std::uint32_t K>

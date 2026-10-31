@@ -161,3 +161,35 @@ reuse had made R's many-shape compiles slower (A38, A39).
   fixed before any measurement.
 - R medium allocates nothing per call in a steady run of identical requests (`test_allocs`, a count,
   was 27), as Q. The many-shape compile cost is reported as measured, with reuse on.
+
+## 2026-10-31. Pre-freeze review
+
+Decided by this session (no new question; decision notice to the coordinator). A fresh review
+(Opus) of 1e4b25d..88e5b4c, the code since the fourth review: no CRITICAL or HIGH, 2 MEDIUM, 5 LOW,
+all acted on.
+
+- M1: nothing checked the bytes ghz sends with `--binary-file`, as the Windows runs do (ghz reads
+  such a file as one message or as count-prefixed messages, and an echoing arm cannot tell). The
+  interop test now sends `small.pb` and `medium.pb` through ghz to an arm that answers OK only to
+  the file's exact bytes: 200 of 200 calls each, with ghz v0.121.0 on Windows and on Linux. The
+  Windows pilot's binary and bodies are unchanged.
+- M2: out-of-memory tests through singular nested messages, nested repeated ones and the
+  endpoint's reused slot (`test_growth`): each allocation fails once in turn; kept storage stays
+  default and the next call returns the request whole.
+- L1: the precondition of `box`'s `*` and `->` is documented: a release build returns the kept
+  storage of an absent box.
+- L2: reuse follows the previous call's shape. `tep::repeated` and `tep::box` keep only what the
+  previous message used, and copy-assigning into the cleared response is a second shrink, so
+  requests that alternate between more and fewer elements, or with and without a nested message,
+  allocate on each swing back up; protobuf keeps every cleared object. The entry of 2026-10-30
+  ("as protobuf's repeated fields keep cleared elements") holds for a steady run of identical
+  requests only. `test_allocs` prints the alternating case (the medium Order and one with an item
+  fewer and no customer): R 4, P 30, Q 0 allocations per call. The measured runs send one fixed
+  body per window; the paper states this as a threat.
+- L3: the transport maps an exception from an arm to RESOURCE_EXHAUSTED (`bad_alloc`) or UNKNOWN,
+  as the endpoint does, and clears the response on any status but OK.
+- L4: wording for the manuscript: kept storage holds no earlier value, but cleared strings and
+  vectors still hold old bytes in their capacity; the 64 KiB reuse limit is on wire size, and
+  empty elements decode to about sizeof(element) per 2 bytes.
+- L5: move assignment of `box` and `repeated` takes the source before freeing its own storage
+  (reachable only with a recursive user type; `test_reflect` covers it under ASan).

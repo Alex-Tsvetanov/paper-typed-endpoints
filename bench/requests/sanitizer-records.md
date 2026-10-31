@@ -40,7 +40,7 @@ included. Green: every test passes or is a declared skip, and 0 reports.
 | Record | Preset | CTest in the desktop's dev image | Then |
 |---|---|---|---|
 | L GCC ASan+UBSan | `linux-gcc1620-e2e` | 25 tests with the interop test, all pass but `allocs`, skipped (it counts heap allocations, which ASan replaces); 24 on the laptop, which builds no interop programs | `fuzz_decode_smoke 300000 tests/golden/everything.bin`, and the load below |
-| L GCC TSan | `linux-gcc1620-e2e-tsan` | TSAN_PENDING | the load below, two workers |
+| L GCC TSan | `linux-gcc1620-e2e-tsan` (docker needs `--security-opt seccomp=unconfined`) | 24 tests without the interop test, all pass but `allocs`, skipped (as under ASan) | the load below, two workers |
 | L clang ASan+UBSan | `linux-clang-asan` | 8 tests, all pass but `reflection_layer`, skipped (clang has no P2996) | none |
 | L clang TSan | `linux-clang-tsan` | 8 tests, as above | none |
 | L clang MSan | `linux-clang-msan` | not run: the desktop has no instrumented libc++ | none |
@@ -51,7 +51,9 @@ S, R, P and Q, one at a time, driven by `~/opt/h2load-1.70.0/bin/h2load` with ea
 (`server/bodies/small.bin`, `medium.bin`), 2 windows of 5 s at 12 connections of 32 streams, as the
 pilots call it. Placement from `lab/laptop/README.md`: for ASan one worker on CPU 14 and h2load on
 CPUs 2 to 13; for TSan two workers (`--cpus 12,14`) and h2load on CPUs 2 to 11. Each server log
-must end in `failed 0` with `calls ok` within the pilots' bound, and hold no sanitizer report.
+must end in `failed 0` with `calls ok` within the pilots' bound, and hold no sanitizer report. In
+the desktop's dev image the same load in count mode (20,000 calls per arm and body, 12 connections
+of 32 streams; one worker under ASan, two under TSan) gave 0 failed and no report for every arm.
 
 The Windows record builds `nghttp2-1.70.0-msvc-asan` with `bench/build_deps_msvc.sh` (inside a
 vcvars64 environment, from the copied `nghttp2-1.70.0.tar.xz`), where the preset expects it under

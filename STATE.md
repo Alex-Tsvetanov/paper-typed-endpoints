@@ -77,12 +77,14 @@ design note maps each erratum to the P5 test or experiment that replaces it.
   each of the four toolchains above `-v D:\Dev\toolchains\<name>-linux[-asan]:/home/dev/opt/<name>[-asan]:ro`,
   `-w <repo> papers-dev:arch-2026-10-23 bash tools/dev_linux_all.sh <presets>` (`MSYS_NO_PATHCONV=1`).
 - Windows: from a `vcvars64.bat` shell, `cmake --preset msvc-debug`, build, ctest.
-- Results (pass or fail only), handler table, with interop: `linux-gcc1620-{e2e,e2e-release}` 25
-  of 25 (`allocs` Skipped under ASan), `mingw-gcc1620-e2e-release` 24 of 24, `fuzz_decode` 300,000
+- Results (pass or fail only), with interop: `linux-gcc1620-{e2e,e2e-release}` 25 of 25,
+  `linux-gcc1620-e2e-tsan` 24 (`allocs` skipped under both sanitizers), `mingw-gcc1620-e2e-release`
+  24 of 24, `linux-clang-{asan,tsan}` 8 (`reflection_layer` skipped), `fuzz_decode` 300,000
   mutations under ASan+UBSan; `msvc-e2e-asan` 9 of 9 at 60eff0e (transport only).
 - Tests: golden wire vectors (`tests/golden/README.md`) from protoc 3.21.12, regenerated with the
   pinned protoc 36.2 on 2026-10-31: identical. The encoder matches them byte for byte.
-- TSan: not run yet (server threads); needs a preset, a TSan protobuf, `seccomp=unconfined` in docker.
+- Sanitized server under h2load (count mode, every arm and body): ASan one worker, TSan two, 0 failed,
+  no report. TSan in docker needs `--security-opt seccomp=unconfined`; `protobuf-36.2-linux-tsan`.
 
 ## Toolchain facts (desktop, 2026-10-23)
 
@@ -100,19 +102,17 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 ## Status
 
 - [x] Repository, design note draft, compiler findings; tests pass on Linux, MSVC (portable), MinGW.
-- [x] Fresh reviews 1 (2026-10-23, 8764052) and 2 (8764052..de304a9): all CRITICAL, HIGH, MEDIUM
-      fixed. Open LOW: option value types (`[deprecated = "yes"]` accepted), `1abc` one floating
-      token, no decode allocation cap beyond the 4 MiB frame (bounded by sizeof(M) per 2 bytes).
-- [x] Third fresh review (Opus, c525595..c1dd0fb, 2026-10-30): 2 HIGH (rpc space reserved per
-      service in proportion to the file; rpc names in rpc type lookup), 2 MEDIUM (fuzz checks,
-      push_back assert), 3 LOW. HIGH and MEDIUM fixed in 6a0d8c9, verified by the same reviewer.
-      Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
+- [x] Fresh reviews 1 to 3 (2026-10-23 to 30; the third 6a0d8c9, verified): every CRITICAL, HIGH and
+      MEDIUM fixed. Open LOW: option value types, `1abc` one floating token, no decode allocation cap
+      beyond the 4 MiB frame, run-time hash probing with crafted collisions, reserves kept in the file.
 - [x] Fourth fresh review (Opus, 23dfab3..1e4b25d, 2026-10-30): no CRITICAL or HIGH; 4 MEDIUM,
       7 LOW. Fixed and verified: M3 (multi-worker test), M4 (console handler), L5, L7 to L11
       (34f65a0, 91dbece). M1 (MinGW emulated TLS biases P on Windows) and M2 (Windows sanitizer
       record, transport only) answered by Alex (revision log). L6 caveat.
+- [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
+      all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
 - [ ] Next: the freeze proposal (`design/freeze-proposal.md`, Q1 to Q4) with Alex; Laptop request 15
-      (Windows pilot) and 16 (D5 records, a dry run first); a fresh review of 1e4b25d..HEAD.
+      (Windows pilot, A43) and 16 (D5 records, a dry run first).
 
 ## Laptop requests
 

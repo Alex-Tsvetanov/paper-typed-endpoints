@@ -12,6 +12,7 @@
 #include <cstring>
 #include <exception>
 #include <mutex>
+#include <new>
 #include <span>
 #include <string>
 #include <string_view>
@@ -170,7 +171,16 @@ public:
             } else if (frame->compressed) {
                 st = status::internal;  // no grpc-encoding is negotiated
             } else {
-                st = arm_->call(s.path, frame->payload, s.response);
+                // An arm may throw (protobuf allocates); the exception must not unwind through
+                // nghttp2's C callbacks. Mapped as the reflection endpoint maps it.
+                try {
+                    st = arm_->call(s.path, frame->payload, s.response);
+                } catch (const std::bad_alloc&) {
+                    st = status::resource_exhausted;
+                } catch (...) {
+                    st = status::unknown;
+                }
+                if (st != status::ok) s.response.clear();
             }
         }
         ++calls_[static_cast<std::size_t>(st)];

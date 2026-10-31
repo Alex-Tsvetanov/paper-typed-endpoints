@@ -519,6 +519,31 @@ void test_repeated_references() {
     TEP_CHECK(q.size() == 3 && q[2] == "z" && tep_test::kept_is_default(q));
 }
 
+// A recursive user type: generated messages never are (the schema refuses recursion), but the
+// public box and repeated may be instantiated with one.
+struct tree {
+    tep::box<tree> child;
+    tep::repeated<tree> kids;
+    int v = 0;
+};
+
+// Move assignment from an object that lives inside the destination's own storage takes the source
+// before freeing that storage (run under ASan).
+void test_move_from_inside() {
+    tree t;
+    t.child = tep::box<tree>(tree{});
+    t.child->child = tep::box<tree>(tree{});
+    t.child->child->v = 7;
+    t.child = std::move(t.child->child);
+    TEP_CHECK(t.child.has_value() && t.child->v == 7 && !t.child->child.has_value());
+    tree u;
+    u.kids.emplace_back();
+    u.kids[0].kids.emplace_back();
+    u.kids[0].kids[0].v = 9;
+    u.kids = std::move(u.kids[0].kids);
+    TEP_CHECK(u.kids.size() == 1 && u.kids[0].v == 9);
+}
+
 // Storage kept for reuse holds no data: after shrinking parses, copies, clears, initializer lists
 // and resizes, every element past size() and the storage of every absent nested message equals the
 // default, at every depth, and the kept storage is what the next message reuses.
@@ -623,6 +648,7 @@ int main() {
     test_kept_storage();
     test_unused_storage_is_freed();
     test_repeated_references();
+    test_move_from_inside();
     test_backward_writer();
     return tep_test::finish("test_reflect");
 }

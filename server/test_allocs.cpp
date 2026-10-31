@@ -19,6 +19,7 @@
 
 #include "arm.hpp"
 #include "check.hpp"
+#include "e2e.pb.h"
 #include "requests.hpp"
 
 namespace {
@@ -64,6 +65,24 @@ double count(const char* arm_name, e2e::arm& a, const char* payload, const char*
     return per_call;
 }
 
+// Prints the allocations per call when calls alternate between the medium Order and a smaller one
+// (one item fewer, no customer). Arm R keeps only what the previous message used (tep::repeated,
+// tep::box), so it allocates on each swing back up; protobuf keeps every cleared object. Printed
+// only: the measured runs send one fixed body per window.
+void count_alternating(const char* arm_name, e2e::arm& a, const std::string& medium, const std::string& smaller) {
+    const auto call = [&](const std::string& m, std::vector<std::byte>& response) {
+        const std::span<const std::byte> request{reinterpret_cast<const std::byte*>(m.data()), m.size()};
+        TEP_CHECK(a.call("/bench.e2e.Echo/EchoOrder", request, response) == tep::grpc::status::ok);
+    };
+    std::vector<std::byte> response;
+    call(medium, response);
+    call(smaller, response);
+    const std::size_t n0 = allocations;
+    for (int i = 0; i < calls; ++i) call(i % 2 == 0 ? medium : smaller, response);
+    std::printf("arm %s medium alternating with a smaller order: %.2f allocations per call\n", arm_name,
+                static_cast<double>(allocations - n0) / calls);
+}
+
 }  // namespace
 
 int main() {
@@ -90,5 +109,12 @@ int main() {
         // (protobuf 36.2, pinned), so a steady run of identical requests allocates nothing.
         if (std::string_view(name) == "Q") TEP_CHECK(at_small == 0 && at_medium == 0);
     }
+    bench::e2e::Order shorter;
+    TEP_CHECK(shorter.ParseFromString(medium) && shorter.items_size() > 1 && shorter.has_customer());
+    shorter.mutable_items()->RemoveLast();
+    shorter.clear_customer();
+    const std::string smaller = shorter.SerializeAsString();
+    for (const auto& [name, a] : {std::pair{"R", r.get()}, std::pair{"P", p.get()}, std::pair{"Q", q.get()}})
+        count_alternating(name, *a, medium, smaller);
     return tep_test::finish("test_allocs");
 }

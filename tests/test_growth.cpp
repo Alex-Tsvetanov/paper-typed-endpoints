@@ -266,9 +266,122 @@ void test_out_of_memory_keeps_storage_clean() {
 
 }  // namespace
 
+// Out of memory through singular nested messages (tep::box) and nested repeated ones, and through
+// the endpoint's reused slot: kept storage stays clean, and the next call is whole.
+struct nest_proto {
+    static constexpr std::string_view text = R"(syntax = "proto3";
+package tep.nest;
+message Twig { int32 n = 1; string s = 2; }
+message Leaf { int32 id = 1; string label = 2; Twig twig = 3; repeated Twig twigs = 4; }
+message Nest { Leaf one = 1; repeated Leaf many = 2; string name = 3; }
+service NestSvc { rpc Echo(Nest) returns (Nest); }
+)";
+};
+
+consteval { tep::define_messages<nest_proto>(); }
+
+using Twig = tep::message_t<nest_proto, "tep.nest.Twig">;
+using NLeaf = tep::message_t<nest_proto, "tep.nest.Leaf">;
+using Nest = tep::message_t<nest_proto, "tep.nest.Nest">;
+
+struct nest_impl {
+    tep::grpc::status Echo(const Nest& q, Nest& r) {
+        r = q;
+        return tep::grpc::status::ok;
+    }
+};
+
+using nest_endpoint = tep::endpoint<nest_proto, "tep.nest.NestSvc", nest_impl>;
+
+namespace {
+
+Nest rich_nest() {
+    Nest n{};
+    n.one = NLeaf{.id = 1, .label = std::string(40, 'o'), .twig = Twig{.n = 2, .s = std::string(40, 't')}, .twigs = {}};
+    for (std::int32_t i = 0; i < 3; ++i) {
+        NLeaf l{.id = i, .label = std::string(40, static_cast<char>('a' + i)), .twig = {}, .twigs = {}};
+        l.twig = Twig{.n = i, .s = std::string(40, 'w')};
+        for (std::int32_t t = 0; t <= i; ++t) l.twigs.push_back(Twig{.n = t, .s = std::string(30, 's')});
+        n.many.push_back(std::move(l));
+    }
+    n.name = std::string(40, 'n');
+    return n;
+}
+
+// A destination that keeps storage: an absent `one` whose box still holds a cell, and kept
+// elements of `many` that hold kept twigs.
+Nest kept_nest() {
+    Nest d = rich_nest();
+    d.one.reset();
+    d.many.clear();
+    return d;
+}
+
+void test_out_of_memory_nested() {
+    const Nest rich = rich_nest();
+    const auto bytes = tep::encode(rich);
+    std::size_t failures = 0;
+    for (std::size_t k = 1; k <= 80; ++k) {
+        Nest dst = kept_nest();
+        throw_at = allocations + k;
+        try {
+            dst = rich;
+        } catch (const std::bad_alloc&) {
+            ++failures;
+        }
+        throw_at = 0;
+        TEP_CHECK(tep_test::kept_is_default(dst));
+        Nest parsed = kept_nest();
+        throw_at = allocations + k;
+        try {
+            tep::decode_error err{};
+            (void)tep::parse_from(parsed, tep::wire::reader(bytes), err);
+        } catch (const std::bad_alloc&) {
+            ++failures;
+        }
+        throw_at = 0;
+        TEP_CHECK(tep_test::kept_is_default(parsed));
+    }
+    TEP_CHECK(failures > 0);
+}
+
+// Each allocation of a call fails once, in turn: the endpoint answers RESOURCE_EXHAUSTED with an
+// empty response (or OK when no allocation was left to fail), and the next call returns the
+// request whole.
+void test_out_of_memory_endpoint() {
+    nest_impl impl;
+    nest_endpoint ep{impl};
+    const auto request = tep::encode(rich_nest());
+    std::vector<std::byte> response;
+    std::size_t exhausted = 0;
+    for (std::size_t k = 1; k <= 80; ++k) {
+        throw_at = allocations + k;
+        const auto st = ep.invoke("/tep.nest.NestSvc/Echo", request, response);
+        throw_at = 0;
+        if (st == tep::grpc::status::resource_exhausted) {
+            ++exhausted;
+            TEP_CHECK(response.empty());
+        } else {
+            TEP_CHECK(st == tep::grpc::status::ok);
+        }
+        TEP_CHECK(ep.invoke("/tep.nest.NestSvc/Echo", request, response) == tep::grpc::status::ok);
+        const auto frame = tep::grpc::parse_unary(response);
+        TEP_CHECK(frame.has_value());
+        if (frame) {
+            const auto back = tep::decode<Nest>(frame->payload);
+            TEP_CHECK(back.has_value() && *back == rich_nest());
+        }
+    }
+    TEP_CHECK(exhausted > 0);
+}
+
+}  // namespace
+
 int main() {
     test_endpoint_slots();
     test_out_of_memory_keeps_storage_clean();
+    test_out_of_memory_nested();
+    test_out_of_memory_endpoint();
     test_together_is_one_allocation();
     test_pieces_grow_geometrically();
     test_malformed_runs();

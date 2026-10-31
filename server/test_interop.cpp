@@ -8,6 +8,9 @@
 // (interop/go/interop_server) answers requests encoded here by tep: it checks each one field by
 // field against the same known messages, and this side decodes each reply with tep and compares
 // it with what it sent. The Go programs come from tools/build_interop.sh (TEP_INTEROP_BIN).
+// Last, ghz sends the benchmark's binary bodies (--binary-file, as the Windows runs do) to an arm
+// that accepts only the exact bytes of the body, since an echoing arm cannot tell what ghz sent.
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -31,6 +34,7 @@
 #include "check.hpp"
 #include "h2_server.hpp"
 #include "h2_test_client.hpp"
+#include "requests.hpp"
 #include "tep/reflect.hpp"
 
 namespace {
@@ -157,6 +161,68 @@ void go_client_calls(const char* name, std::unique_ptr<e2e::arm> (*make)(), cons
     TEP_CHECK(counted[0] == echoes && counted[12] == 1);
 }
 
+// Answers OK, echoing the request, only when the request is exactly the expected message of its
+// method; INVALID_ARGUMENT otherwise.
+class exact_arm final : public e2e::arm {
+public:
+    exact_arm(std::string person, std::string order) : person_(std::move(person)), order_(std::move(order)) {}
+
+    tep::grpc::status call(std::string_view path, std::span<const std::byte> request,
+                           std::vector<std::byte>& response) override {
+        response.clear();
+        const std::string* want = path == "/bench.e2e.Echo/EchoPerson"  ? &person_
+                                  : path == "/bench.e2e.Echo/EchoOrder" ? &order_
+                                                                        : nullptr;
+        if (want == nullptr) return tep::grpc::status::unimplemented;
+        if (std::string_view(reinterpret_cast<const char*>(request.data()), request.size()) != *want)
+            return tep::grpc::status::invalid_argument;
+        response.resize(tep::grpc::prefix_size + request.size());
+        tep::grpc::write_prefix(response.data(), false, static_cast<std::uint32_t>(request.size()));
+        std::copy(request.begin(), request.end(), response.begin() + tep::grpc::prefix_size);
+        return tep::grpc::status::ok;
+    }
+
+private:
+    std::string person_;
+    std::string order_;
+};
+
+// ghz with the benchmark's bodies as --binary-file, the bare messages write_bodies writes as
+// small.pb and medium.pb: every call must reach the server as exactly those bytes.
+void ghz_binary_calls(const fs::path& dir) {
+    const std::string person = e2e::small_request();
+    const std::string order = e2e::medium_request();
+    for (const auto& [name, bytes] : {std::pair{"small.pb", &person}, std::pair{"medium.pb", &order}}) {
+        std::ofstream out(dir / name, std::ios::binary);
+        out.write(bytes->data(), static_cast<std::streamsize>(bytes->size()));
+        TEP_CHECK(static_cast<bool>(out));
+    }
+    e2e::server_options options;
+    options.port = 0;
+    options.make_arm = [&] { return std::make_unique<exact_arm>(person, order); };
+    e2e::server s(options);
+    std::thread serving([&s] { s.run(); });
+    constexpr int calls = 200;
+    for (const auto& [rpc, body] : {std::pair{"EchoPerson", "small.pb"}, std::pair{"EchoOrder", "medium.pb"}}) {
+        const fs::path report = dir / (std::string(rpc) + ".binary.json");
+        const int exit_status =
+            run(TEP_GHZ, "--insecure --proto " + quoted(TEP_E2E_PROTO) + " --call bench.e2e.Echo." + rpc + " -B " +
+                             quoted(dir / body) + " -n " + std::to_string(calls) +
+                             " -c 8 --connections 2 --disable-template-functions --disable-template-data -O json -o " +
+                             quoted(report) + " 127.0.0.1:" + std::to_string(s.port()));
+        const std::string text = read_text(report);
+        const std::string ok = "\"statusCodeDistribution\":{\"OK\":" + std::to_string(calls) + "}";
+        std::printf("ghz -B %s: exit status %d, %s\n", body, exit_status,
+                    text.find(ok) != std::string::npos ? "every call carried the body's exact bytes"
+                                                       : "not every call carried the body's exact bytes");
+        TEP_CHECK(exit_status == 0);
+        TEP_CHECK(text.find(ok) != std::string::npos);
+    }
+    s.stop();
+    serving.join();
+    TEP_CHECK(s.calls()[0] == 2 * std::uint64_t{calls});
+}
+
 template <class M>
 std::vector<std::byte> framed_message(const M& m) {
     std::vector<std::byte> out;
@@ -233,6 +299,7 @@ int main() {
     go_client_calls("arm P", e2e::make_protoc_arm, dir);
     go_client_calls("arm Q", e2e::make_protoc_reuse_arm, dir);
     tep_client_calls(dir);
+    ghz_binary_calls(dir);
     std::error_code ignored;
     fs::remove_all(dir, ignored);
     return tep_test::finish("test_interop");
