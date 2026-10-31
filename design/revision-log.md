@@ -240,6 +240,8 @@ windows, every status OK, server counts within the bound. `bench/pilot/pilot_e2e
 - ghz's latency percentiles on Windows are quantized: at c1 m1 every window reports 0 ns up to
   p50 and 0.52 to 0.55 ms above, on calls averaging about 0.25 ms. The Windows latency measure is
   now the mean call cycle, 1/(requests per second), which includes ghz's own time per call.
+  Alex accepted this the same day (relayed by the coordinator): "Accept (Recommended)" (quoted
+  in `hypotheses.md` section 6).
 - c12 m1, the one Windows load that saturates the server (98% to 99%): medium P 45.0k > S 42.5k >
   R 38.8k > Q 38.1k requests per second, every window stable; small S 76.8k > R 75.2k > Q 73.4k >
   P 71.4k. P above S, the transport with no codec, is not a codec cost; Linux shows no such

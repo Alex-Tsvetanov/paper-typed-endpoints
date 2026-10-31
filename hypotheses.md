@@ -167,6 +167,11 @@ Every timed build is the optimized Release build; sanitizer and Debug builds are
   P build, which adds many 16 to 512 (many 16 on Linux = R faster); (d) compile time includes the
   link; (e) the Windows end-to-end hypothesis needs the server at CPU share of at least 0.95 at
   c12 m128. Accept?" = "Accept all (Recommended)".
+- After the Windows end-to-end pilot, the same day: "P5 Windows latency: ghz's percentiles on
+  Windows are quantized (0 ns up to p50, then 0.52 to 0.55 ms, on calls averaging about 0.25 ms).
+  P5 proposes reporting the Windows mean call cycle, 1/(req/s) at c1 m1, which includes ghz's own
+  time per call, instead of median and p99. Linux keeps h2load's median and p99. Accept?" =
+  "Accept (Recommended)".
 
 ## 7. Values filled at the freeze (by the rules above, from the pilots named)
 
