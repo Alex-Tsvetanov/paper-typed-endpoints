@@ -52,14 +52,13 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Decoding: up to 16 fields compare inline, larger messages through field-number tables. Repeated
   fields reserve for elements that arrive together, else grow geometrically (`test_growth`). Encoding
   writes back to front, sizing each message once (A35: sizing Item again was 7.4% of R's medium
-  cycles). R loses many from 2048 (A29): per-field decode against protoc's tables.
+  cycles). R's many compiles lose to P from 1024 fields (Laptop request 13).
 - Heap allocations per call (`test_allocs`, a count, identical requests): small 0 for every arm;
   medium S 0, P 32 (arena strings keep heap buffers), Q 0 (protobuf's cleared repeated fields
-  keep their elements), R 93, 62 (growth fix), 27 (reuse), 0 (keep-storage types, Alex). Reuse:
-  `parse_from` is clear plus merge (fuzzed, split inputs); kept storage holds no earlier data
-  (`tests/kept_storage.hpp`); slack rule per container; slots taken out per call (re-entry safe).
-  Size proxy, not timed: .text many 1024 +15.2%, wide 1024 +2.4% (60eff0e to reuse); then many 1024
-  +0.5%, many 2048 +0.6%, wide 1024 -5.8% (back writer; GIMPLE statements many 1024 -0.6%).
+  keep their elements), R 93, 62 (growth fix), 27 (reuse), 0 (keep-storage types, Alex; A40 on the
+  laptop). Reuse: `parse_from` is clear plus merge (fuzzed, split inputs); kept storage holds no
+  earlier data (`tests/kept_storage.hpp`); slack rule per container; slots taken out per call.
+  Desktop size proxies (GIMPLE statements, .text; not timed) precede each laptop compile run.
 - Constant-evaluation budget: GCC 16's default `-fconstexpr-ops-limit` is 33,554,432 operations
   per outermost evaluation (every expression node counts; a variable template forced early gets
   its own counter, so define_messages forces the tables). `bench/constexpr_ops.sh` bisects it
@@ -113,52 +112,56 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
       Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
       `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next: Laptop requests 13 and 14 (compile rerun, pilot 5) at the keep-storage commit; then
-      the paper's runs; D5 records at the code freeze. Alex answered both questions (revision log).
+- [ ] Next, before the paper's runs: a Windows pilot (MinGW arms, ghz, laptop's Windows; never run,
+      it checks that ghz saturates the server); the code freeze with D5 records (GCC ASan+UBSan again,
+      TSan for the first time); a freeze proposal with hours, D9 replicates sized for R/Q 1.016.
 
 ## Laptop requests
 
 Since 2026-10-26 (Alex, AGENTS.md bc1a76d) a ready request goes straight to the coordinator's
 queue; design, scope and pushes still go to Alex.
 
-1. Done 2026-10-24 on Arch (archive `gap1-a-q4-visit-a1-c0eb9960`, sha256 files match): Arch's
-   gcc is the image's exact package; F1 reproduced at `-O1` and `-O2`; the probe printed its line.
+1. Done 2026-10-24 (`gap1-a-q4-visit-a1-c0eb9960`): Arch's gcc is the image's package; F1 at -O1, -O2.
 2. Done 2026-10-29 (A23 at c525595, `gap44-a-q1-p5-pilot-c2670a4d`, 4b01a015...cc82): within 0.3%.
 3. Done 2026-10-30 (A31 at fce6a17; `gap52-a-q2-p5-e2e-run-2bd355f5` 30ed7123...619e): knee c12 m128.
-4. Done 2026-10-29 (A19, archive `gap40-a-q1-p5-gcc-877d16d0`, sha256 17fac736...0beb):
-   `~/opt/gcc-16.2.0` on Arch; 14 of 14, F1 as on the desktop; make -j14 2,611 s.
+4. Done 2026-10-29 (A19, `gap40-a-q1-p5-gcc-877d16d0` 17fac736...0beb): `~/opt/gcc-16.2.0` on Arch.
 5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710),
    A28 at 614c9f4 (`gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
-7. Done 2026-10-30 (A29 at fa60375, archive `gap50-a-q1-p5-rerun3-4b1cde4a`, sha256 345bea80...bf09):
-   51/51; P across A23 to A29 within 0.9%. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to
-   4096); many 1.00, 1.20, 1.56. RSS: R 2.9 times P at many 4096. A27 to A28 cut R wide 4096 by half.
+7. Done 2026-10-30 (A29 at fa60375, `gap50-a-q1-p5-rerun3-4b1cde4a` 345bea80...bf09): before reuse.
+   51/51. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to 4096); many 1.00, 1.20, 1.56.
 8. Done 2026-10-30 (A33 at 16fdbd5; `gap55-a-q1-p5-e2e2-build-cb4bb3c2` 9fe06b9d...d036,
    `gap55-a-q2-p5-e2e2-run-f472a6ce` b083da61...080f). Pilot. libc 22.5% of R's medium cycles (62 allocations).
 9. Done 2026-10-30 (A35 at 3537817; `gap57-a-q1-p5-e2e3-build-b0ae2b00` b445446f...f82f,
-   `gap57-a-q2-p5-e2e3-run-c201db87` a6f99e27...b3d1). Pilot. Q beat R on medium (0.84 to 0.91), R beat
-   P and Q on small; order confounded (pilot 4 settles it). Medium user cycles per request: R 9,178.
+   `gap57-a-q2-p5-e2e3-run-c201db87` a6f99e27...b3d1). Pilot. Q beat R on medium, R beat P, Q on small.
 10. Done 2026-10-30 (A38 step 1 at 30818a5; `gap60-a-q1-p5-rerun4b-c9812e38` 5f817497...acc6): 51/51, P
     within 0.8% of A29. R against A29, 16 to 4096: many +8, +24, +27, +24%, wide +6 to -2.4%. R/P many
     0.33, 1.24, 1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
 11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`; `gap60-a-q2-p5-e2e4-build-8df8d661` eac51854...43dd,
-    `gap60-a-q3-p5-e2e4-run-3d198c01` 4db2d9ce...3273). Pilot. 264 windows, checks pass, allocs unchanged.
-    An arm's second run within 1.6% of its first: no order effect. Every window: R beats P (small 1.02
-    to 1.08, medium 1.01 to 1.12) and Q on small from c12 m8 (1.02); Q beats R on medium from c12 m8
-    (0.94 to 0.85); ties at c1 and c12 m1. R medium +2 to 3% over A35 (back writer). Medium user cycles
-    per request (proxy): R 8,906, Q 7,755; own code R 5,598, Q 5,737; libc R 1,651, Q 321: allocation.
+    `gap60-a-q3-p5-e2e4-run-3d198c01` 4db2d9ce...3273). Pilot. 264 windows; second runs within 1.6%: no
+    order effect. R beat P everywhere, Q on small from c12 m8; Q beat R on medium from c12 m8 (0.94 to
+    0.85). Medium cycles:u per request (`bench/pilot/perf_summary.py`): R 8,902, Q 7,751; libc R 1,650, Q 321.
 12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`; `gap61-a-q1-p5-handlers-79de7859` 5ab64c2a...29f4).
-    Pilot. Every build separated: R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5 (4096
-    170.0 s, A29 181.2 s); constant evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many
-    1.18, 1.32, 1.46 (A29 1.00, 1.20, 1.56; P above 1024 from A38). What reuse still costs is code.
-13. and 14. Queued as chain A40 at db1f31c, after P4's A37: `compile-rerun-5.md`, `e2e-pilot-5.md`.
+    Pilot. R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5, every build separated; constant
+    evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many 1.18, 1.32, 1.46.
+13. Done 2026-10-31 (A40 at db1f31c, `compile-rerun-5.md`; `gap62-a-q1-p5-rerun5-96943287` 3ce6458f...e246).
+    Pilot. 51/51; P within 0.8% of A38. R many (1024, 2048, 4096) against A39 -3.4, -2.2, -0.7%, against
+    A29 (before reuse) +14.4, +7.9, -6.8%: the front end shrank (no replace mode), code generation did
+    not. R wide (16 to 4096) against A38 +0.9, +0.7, +1.5, +1.6%, every build separated: a loss. R/P many
+    0.32, 1.14, 1.29, 1.45; wide 0.31, 0.90, 0.92, 0.76. RSS R many 4096 4,059 MiB, 2.1 times P (A29 2.9).
+14. Done 2026-10-31 (A40 at db1f31c, `e2e-pilot-5.md`; `gap62-a-q2-p5-e2e5-build-7c02aacf` b380de1a...7d8d,
+    `gap62-a-q3-p5-e2e5-run-ccf9cf23` b566c31e...7744). Pilot. ctest 24 of 24; R medium 0 allocations; 264
+    windows, checks pass; second runs within 1.5%. Every R window above every Q window in 12 of 14 cells:
+    small 1.014 to 1.046 from c12 m1, medium 1.023 to 1.041; ties at small c1 m1 (all arms) and medium c48
+    m128 (1.016, overlap). R/P small 1.03 to 1.09, medium 1.06 to 1.25. Against pilot 4: S, P, Q within 2%,
+    R medium +3.6 to +19%. Medium cycles:u per request R 7,659, Q 7,820; libc R 455. Clearing kept
+    storage (`clear_within_slack`, `truncate`) is 3.5% of R's medium cycles. Analysis: `bench/pilot/`.
 
 ## Lab requests
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 
 1. Done 2026-10-29: protobuf 36.2 and abseil 20250512.1 in `C:\Users\alext\opt\_dl\p5-protobuf-36.2`.
-2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2 and ghz v0.121.0 for Windows and
-   Linux, sha256 equal to `bench/pins.md`, in `%USERPROFILE%\opt` and `D:\Dev\toolchains`; modules by `go.sum`.
+2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2, ghz v0.121.0, pinned sha256; `go.sum`.
 3. Done 2026-10-30: nghttp2 1.70.0 and libev 4.33 (source). 4. Done 2026-10-24: MinGW zip on the laptop.
 
 ## Alex decides
@@ -180,12 +183,9 @@ Answered by Alex on 2026-10-23 (AskUserQuestion, recommended option each time):
 From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coordinator;
 `Papers/lab/laptop/queue-plan-2026-10-draft.md`, section 10):
 
-6. Gap block approved: Lab request 4 (MinGW zip) and Laptop request 1 (Arch gcc, probe); both done.
-7. D1: no `pacman` upgrade or install on the laptop's Arch until P4's Arch blocks end. If Arch's
-   gcc package differs from the image's, the fix is a side-by-side GCC build under `~/opt`,
-   never a `pacman` change.
-8. D2: P5 uses Go 1.27.2, the same as P4 and P7 (Lab request 2).
-9. D4: P4's idle day carries only read-only jobs.
+6. Gap block approved: Lab request 4 and Laptop request 1 (both done). 8. Go 1.27.2, as P4 and P7.
+7. No `pacman` upgrade or install on the laptop's Arch until P4's Arch blocks end; a differing gcc
+   means a side-by-side build under `~/opt`. 9. P4's idle day carries only read-only jobs.
 10. GCC version (2026-10-29, relayed by the coordinator; question "Declare the gap, or pin 16.2.0
     on both?"): "Pin 16.2.0 on both". Linux build request: `bench/requests/gcc-16.2.0.md`.
 
