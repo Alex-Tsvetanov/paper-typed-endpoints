@@ -193,3 +193,31 @@ all acted on.
   empty elements decode to about sizeof(element) per 2 bytes.
 - L5: move assignment of `box` and `repeated` takes the source before freeing its own storage
   (reachable only with a recursive user type; `test_reflect` covers it under ASan).
+
+## 2026-10-31. Alex's answers to the freeze proposal; hypotheses drafted
+
+Alex answered `design/freeze-proposal.md` Q1 to Q4 (AskUserQuestion, relayed by the coordinator),
+the recommended option each time: freeze R, P and Q now (G a later campaign); small payload at
+c1 m1 without a direction; the many-shape compile direction claimed (R slower from 1024 fields);
+`compile_curve.py` ported to Windows and piloted. `hypotheses.md` is written new from the proposal
+(DRAFT, frozen after Laptop requests 15, 17 and 18). Choices made there within the answers:
+- A cell without a direction is descriptive (ratio and interval), not a two-sided test. Only
+  directional contrasts are tested, one Holm family per experiment over both OSes, as the
+  proposal showed Alex (compile m at most 36, end to end at most 12; 2^-10 passes both).
+- A direction comes only from a pilot that built the cell on that OS with every R build on one
+  side of every P build (`bench/pilot/directions.py`). The sizes 32 to 512 were never built, so
+  Laptop request 18 (Linux) and block 2 of request 17 (Windows) build them, 3 replicates each.
+- The compile measure is the whole build, every phase to the linked program, as the design note
+  defines it. The pilot ratios of the proposal left out the link; on A40's builds the directions
+  and separations are the same.
+- Peak memory is named per measure: the peak resident set on Linux, the peak committed memory
+  (compile, job object) and the peak working set (end to end) on Windows.
+`compile_curve.py` on Windows: each phase in its own job object (started suspended), `--cpu`
+pins the tree, `--timeout` ends it, `peak_commit_kib` from `PeakProcessMemoryUsed`; P's libraries
+from the prefix's `.pc` files; dynamic runtime (F4). `--self-test` passed on the desktop.
+A Sonnet review of the port (2026-10-31) found no CRITICAL or HIGH defect. Fixed: the check now
+runs the program by absolute path (a relative `--work` failed on Linux; every campaign script
+passes an absolute one, so no result is affected); on Windows the error mode suppresses crash
+dialogs, the check has the phase timeout, a failed start reports its NTSTATUS and never leaves a
+suspended process; `directions.py` pools per OS and `ops_limit`; `compare_runs.py` reads Windows
+records.

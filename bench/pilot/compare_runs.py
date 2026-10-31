@@ -22,12 +22,13 @@ for name, path, _ in runs:
         if not r.get("timed") or r.get("time_report"):
             continue
         ph = {p["phase"]: p for p in r["phases"]}
+        mem = lambda p: p.get("maxrss_kib", p.get("peak_commit_kib"))  # Linux RSS, Windows commit
         if r["gen"] == "R":
             secs = ph["compile"]["wall_ns"] / 1e9
-            rss = ph["compile"]["maxrss_kib"] / 1024
+            rss = mem(ph["compile"]) / 1024
         else:
             secs = sum(ph[k]["wall_ns"] for k in ("protoc", "compile_pb", "compile_user")) / 1e9
-            rss = max(ph[k]["maxrss_kib"] for k in ("protoc", "compile_pb", "compile_user")) / 1024
+            rss = max(mem(ph[k]) for k in ("protoc", "compile_pb", "compile_user")) / 1024
         data.setdefault((r["gen"], r["shape"], r["n"]), {}).setdefault(name, []).append((secs, rss))
 
 med = statistics.median

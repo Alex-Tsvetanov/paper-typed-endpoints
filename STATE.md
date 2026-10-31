@@ -68,7 +68,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Desktop toolchains (functional builds): `D:\Dev\toolchains\{gcc-16.2.0-linux, protobuf-36.2-linux,
   protobuf-36.2-linux-asan, nghttp2-1.70.0-linux}`, mounted under `/home/dev/opt`; and
   `%USERPROFILE%\opt\{protobuf-36.2-mingw, nghttp2-1.70.0-mingw, protobuf-36.2-msvc-asan,
-  nghttp2-1.70.0-msvc-asan}`. `bench/compile_curve.py` builds and checks one R or P cell.
+  nghttp2-1.70.0-msvc-asan}`. `bench/compile_curve.py` builds and checks one R or P cell, on Linux
+  and on Windows (MinGW; each phase in a job object: `--cpu`, `--timeout`, `--self-test`).
 
 ## Build and test (desktop, functional only; no timing)
 
@@ -111,8 +112,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       record, transport only) answered by Alex (revision log). L6 caveat.
 - [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
       all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
-- [ ] Next: the freeze proposal (`design/freeze-proposal.md`, Q1 to Q4) with Alex; Laptop request 15
-      (Windows pilot, A43) and 16 (D5 records, a dry run first).
+- [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
+- [ ] Next: Laptop requests 15 (A43), 17 and 18, then fill `hypotheses.md` section 7 by its rules
+      (`bench/pilot/directions.py`) and freeze; 16 (D5 records) at the frozen commit.
 
 ## Laptop requests
 
@@ -123,21 +125,15 @@ queue; design, scope and pushes still go to Alex.
 2. Done 2026-10-29 (A23 at c525595, `gap44-a-q1-p5-pilot-c2670a4d`, 4b01a015...cc82): within 0.3%.
 3. Done 2026-10-30 (A31 at fce6a17; `gap52-a-q2-p5-e2e-run-2bd355f5` 30ed7123...619e): knee c12 m128.
 4. Done 2026-10-29 (A19, `gap40-a-q1-p5-gcc-877d16d0` 17fac736...0beb): `~/opt/gcc-16.2.0` on Arch.
-5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-a-q1-p5-rerun-0763609d`, sha256 22574257...4710),
-   A28 at 614c9f4 (`gap49-a-q1-p5-rerun2-2228616a`, sha256 b90f1c76...e749).
+5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-...` 22574257...4710), A28 at 614c9f4 (b90f1c76...e749).
 7. Done 2026-10-30 (A29 at fa60375, `gap50-a-q1-p5-rerun3-4b1cde4a` 345bea80...bf09): before reuse.
    51/51. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to 4096); many 1.00, 1.20, 1.56.
-8. Done 2026-10-30 (A33 at 16fdbd5; `gap55-a-q1-p5-e2e2-build-cb4bb3c2` 9fe06b9d...d036,
-   `gap55-a-q2-p5-e2e2-run-f472a6ce` b083da61...080f). Pilot. libc 22.5% of R's medium cycles (62 allocations).
-9. Done 2026-10-30 (A35 at 3537817; `gap57-a-q1-p5-e2e3-build-b0ae2b00` b445446f...f82f,
-   `gap57-a-q2-p5-e2e3-run-c201db87` a6f99e27...b3d1). Pilot. Q beat R on medium, R beat P, Q on small.
-10. Done 2026-10-30 (A38 step 1 at 30818a5; `gap60-a-q1-p5-rerun4b-c9812e38` 5f817497...acc6): 51/51, P
-    within 0.8% of A29. R against A29, 16 to 4096: many +8, +24, +27, +24%, wide +6 to -2.4%. R/P many
-    0.33, 1.24, 1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
-11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`; `gap60-a-q2-p5-e2e4-build-8df8d661` eac51854...43dd,
-    `gap60-a-q3-p5-e2e4-run-3d198c01` 4db2d9ce...3273). Pilot. 264 windows; second runs within 1.6%: no
-    order effect. R beat P everywhere, Q on small from c12 m8; Q beat R on medium from c12 m8 (0.94 to
-    0.85). Medium cycles:u per request (`bench/pilot/perf_summary.py`): R 8,902, Q 7,751; libc R 1,650, Q 321.
+8. and 9. Done 2026-10-30 (A33 at 16fdbd5, `gap55-*`; A35 at 3537817, `gap57-*`). Pilots. libc 22.5% of
+   R's medium cycles (62 allocations); then Q beat R on medium, R beat P, Q on small.
+10. Done 2026-10-30 (A38 step 1 at 30818a5, `gap60-a-q1-*` 5f817497...acc6): 51/51. R/P many 0.33, 1.24,
+    1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
+11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`, `gap60-a-q2/q3-*`). Pilot. 264 windows; no order
+    effect. Q beat R on medium from c12 m8 (0.94 to 0.85). Medium cycles:u per request R 8,902, Q 7,751.
 12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`; `gap61-a-q1-p5-handlers-79de7859` 5ab64c2a...29f4).
     Pilot. R many 1024 -4.9%, 2048 -13.1%, 4096 -24.3% against 30818a5, every build separated; constant
     evaluation 6.22 to 3.59 s (1024), 18.96 to 8.10 s (2048). R/P many 1.18, 1.32, 1.46.
@@ -153,8 +149,10 @@ queue; design, scope and pushes still go to Alex.
     m128 (1.016, overlap). R/P small 1.03 to 1.09, medium 1.06 to 1.25. Against pilot 4: S, P, Q within 2%,
     R medium +3.6 to +19%. Medium cycles:u per request R 7,659, Q 7,820; libc R 455. Clearing kept
     storage (`clear_within_slack`, `truncate`) is 3.5% of R's medium cycles. Analysis: `bench/pilot/`.
-15. Windows pilot (`e2e-pilot-windows.md`, at 40e9211): MinGW builds, pilot 5's design with ghz; sent.
-16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; drafted.
+15. Windows pilot (`e2e-pilot-windows.md`, at 40e9211): MinGW builds, pilot 5's design with ghz; A43b (tools 8a7ea7d) 2026-10-31 15:53, after A43's build check misread MinGW ctest's wording.
+16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; sent for a dry run.
+17. Windows compile pilot (`compile-pilot-windows.md`): A40's 51 builds and the 60 of 18, MinGW, `--cpu 14`.
+18. Linux compile pilot of sizes 32 to 512 (`compile-gap-sizes.md`): 60 builds, at most 30 minutes.
 
 ## Lab requests
 
@@ -188,6 +186,8 @@ From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coord
    means a side-by-side build under `~/opt`. 9. P4's idle day carries only read-only jobs.
 10. GCC version (2026-10-29, relayed by the coordinator; question "Declare the gap, or pin 16.2.0
     on both?"): "Pin 16.2.0 on both". Linux build request: `bench/requests/gcc-16.2.0.md`.
+11. Freeze proposal (2026-10-31, relayed; verbatim in `hypotheses.md` section 6), recommended each:
+    Q1 freeze R, P, Q now (G later); Q2 small c1 m1 no direction; Q3 many claim; Q4 port and pilot.
 
 Open: none. The two report drafts are in `design/gcc-report-drafts.md` (F2 is probably GCC PR
 71962; Bugzilla refuses automated searches, so Alex checks for duplicates by hand before filing).

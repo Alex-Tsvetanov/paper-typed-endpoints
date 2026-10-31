@@ -2,6 +2,8 @@
 
 Written 2026-10-31. Nothing here is frozen. After Alex's answers, `hypotheses.md` is written new
 from this proposal and frozen before any timed window; changes after that go to the revision log.
+Answered by Alex on 2026-10-31, the recommended option to each of Q1 to Q4 (revision log);
+`hypotheses.md` (DRAFT) is written from it and holds where the two differ.
 Every number below comes from a laptop pilot named in STATE.md (Laptop requests); pilots are not
 results and nothing here is citable.
 
