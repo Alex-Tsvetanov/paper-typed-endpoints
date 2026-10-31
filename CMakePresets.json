@@ -63,6 +63,28 @@
       }
     },
     {
+      "name": "linux-clang-tsan",
+      "inherits": "base",
+      "displayName": "clang 22 with libc++, TSan, portable layers only",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -fsanitize=thread -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -fsanitize=thread"
+      }
+    },
+    {
+      "name": "linux-clang-msan",
+      "inherits": "base",
+      "displayName": "clang 22, MSan with origins, portable layers only, on the MSan-instrumented libc++ under ~/opt/libcxx-msan-gcc (the laptop's, as P1's records use)",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-stdlib=libc++ -isystem$env{HOME}/opt/libcxx-msan-gcc/include/c++/v1 -fsanitize=memory -fsanitize-memory-track-origins=2 -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++ -fsanitize=memory -L$env{HOME}/opt/libcxx-msan-gcc/lib -Wl,-rpath,$env{HOME}/opt/libcxx-msan-gcc/lib -lc++abi"
+      }
+    },
+    {
       "name": "linux-gcc1620-e2e",
       "inherits": "linux-gcc1620-asan",
       "displayName": "Pinned GCC 16.2.0 with ASan and UBSan, plus the end-to-end arms on a protobuf built with the same sanitizers (~/opt/protobuf-36.2-asan)",
@@ -198,6 +220,26 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute -fno-sanitize-recover=all -fno-omit-frame-pointer",
         "CMAKE_EXE_LINKER_FLAGS": "-Wl,-rpath,$env{HOME}/opt/gcc-16.2.0/lib64"
+      }
+    },
+    {
+      "name": "linux-gcc1620-tsan",
+      "inherits": "gcc1620",
+      "displayName": "Pinned GCC 16.2.0 (~/opt), TSan, runtime from its lib64",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-rpath,$env{HOME}/opt/gcc-16.2.0/lib64"
+      }
+    },
+    {
+      "name": "linux-gcc1620-e2e-tsan",
+      "inherits": "linux-gcc1620-tsan",
+      "displayName": "Pinned GCC 16.2.0 with TSan, plus the end-to-end arms on a protobuf built with TSan (~/opt/protobuf-36.2-tsan); libnghttp2 (C, one session per worker thread) is the uninstrumented release build",
+      "cacheVariables": {
+        "TEP_E2E": "ON",
+        "TEP_PROTOBUF_ROOT": "$env{HOME}/opt/protobuf-36.2-tsan",
+        "TEP_NGHTTP2_ROOT": "$env{HOME}/opt/nghttp2-1.70.0"
       }
     }
   ]

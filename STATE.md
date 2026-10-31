@@ -80,8 +80,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Results (pass or fail only), handler table, with interop: `linux-gcc1620-{e2e,e2e-release}` 25
   of 25 (`allocs` Skipped under ASan), `mingw-gcc1620-e2e-release` 24 of 24, `fuzz_decode` 300,000
   mutations under ASan+UBSan; `msvc-e2e-asan` 9 of 9 at 60eff0e (transport only).
-- Tests: golden wire vectors from protoc 3.21.12 (`tests/golden/README.md`, a development oracle);
-  the encoder matches them byte for byte for all scalar types, enums, nested and repeated fields.
+- Tests: golden wire vectors (`tests/golden/README.md`) from protoc 3.21.12, regenerated with the
+  pinned protoc 36.2 on 2026-10-31: identical. The encoder matches them byte for byte.
 - TSan: not run yet (server threads); needs a preset, a TSan protobuf, `seccomp=unconfined` in docker.
 
 ## Toolchain facts (desktop, 2026-10-23)
@@ -109,12 +109,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       Open LOW: run-time hash probing with crafted collisions; reserves kept in the file.
 - [x] Fourth fresh review (Opus, 23dfab3..1e4b25d, 2026-10-30): no CRITICAL or HIGH; 4 MEDIUM,
       7 LOW. Fixed and verified: M3 (multi-worker test), M4 (console handler), L5, L7 to L11
-      (34f65a0, 91dbece). Open for Alex (via the coordinator): M1 MinGW emulated TLS biases P on
-      Windows; M2 Windows sanitizer record (MSVC ASan cannot start protoc's generated code, see
-      `bench/coverage.json`; clang-cl 22.1.0 fails to build abseil/protobuf as configured). L6 caveat.
-- [ ] Next, before the paper's runs: a Windows pilot (MinGW arms, ghz, laptop's Windows; never run,
-      it checks that ghz saturates the server); the code freeze with D5 records (GCC ASan+UBSan again,
-      TSan for the first time); a freeze proposal with hours, D9 replicates sized for R/Q 1.016.
+      (34f65a0, 91dbece). M1 (MinGW emulated TLS biases P on Windows) and M2 (Windows sanitizer
+      record, transport only) answered by Alex (revision log). L6 caveat.
+- [ ] Next: the freeze proposal (`design/freeze-proposal.md`, Q1 to Q4) with Alex; Laptop request 15
+      (Windows pilot) and 16 (D5 records, a dry run first); a fresh review of 1e4b25d..HEAD.
 
 ## Laptop requests
 
@@ -155,6 +153,8 @@ queue; design, scope and pushes still go to Alex.
     m128 (1.016, overlap). R/P small 1.03 to 1.09, medium 1.06 to 1.25. Against pilot 4: S, P, Q within 2%,
     R medium +3.6 to +19%. Medium cycles:u per request R 7,659, Q 7,820; libc R 455. Clearing kept
     storage (`clear_within_slack`, `truncate`) is 3.5% of R's medium cycles. Analysis: `bench/pilot/`.
+15. Windows pilot (`e2e-pilot-windows.md`, at 40e9211): MinGW builds, pilot 5's design with ghz; sent.
+16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; drafted.
 
 ## Lab requests
 
