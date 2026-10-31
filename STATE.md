@@ -121,10 +121,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 Since 2026-10-26 (Alex, AGENTS.md bc1a76d) a ready request goes straight to the coordinator's
 queue; design, scope and pushes still go to Alex.
 
-1. Done 2026-10-24 (`gap1-a-q4-visit-a1-c0eb9960`): Arch's gcc is the image's package; F1 at -O1, -O2.
+1. and 4. Done 2026-10-24 (`gap1-a-q4-*`: F1 at -O1, -O2) and 2026-10-29 (A19: `~/opt/gcc-16.2.0` on Arch).
 2. Done 2026-10-29 (A23 at c525595, `gap44-a-q1-p5-pilot-c2670a4d`, 4b01a015...cc82): within 0.3%.
 3. Done 2026-10-30 (A31 at fce6a17; `gap52-a-q2-p5-e2e-run-2bd355f5` 30ed7123...619e): knee c12 m128.
-4. Done 2026-10-29 (A19, `gap40-a-q1-p5-gcc-877d16d0` 17fac736...0beb): `~/opt/gcc-16.2.0` on Arch.
 5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-...` 22574257...4710), A28 at 614c9f4 (b90f1c76...e749).
 7. Done 2026-10-30 (A29 at fa60375, `gap50-a-q1-p5-rerun3-4b1cde4a` 345bea80...bf09): before reuse.
    51/51. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to 4096); many 1.00, 1.20, 1.56.
