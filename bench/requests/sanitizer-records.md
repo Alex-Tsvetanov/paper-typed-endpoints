@@ -68,7 +68,27 @@ The measured end-to-end binary is `tep_server` (target `tep_server`, presets
 `include/tep/`, `server/` and the generated `e2e.pb.*`. The compile-curve builds compile
 `include/tep/` with a generated schema (`bench/compile_curve.py`); the records' test targets
 compile the same headers. Options that select code: `TEP_E2E`, `TEP_E2E_TRANSPORT_ONLY`,
-`TEP_FUZZ`. How a record gates the compile-curve builds is the lab's rule to apply.
+`TEP_FUZZ`.
+
+Every record keeps the per-file list as well as the hashes: `inputs_hash.py --list
+<record>.inputs.tsv` (lines `<build>\t<target>\t<path>\t<sha256>`) next to `--out`. The dry run
+of 2026-10-31 kept no list. The compile-curve gate below needs the GCC records' lists.
+
+The compile-curve builds (`bench/compile_curve.py`) are not CMake builds, so `inputs_hash.py`
+cannot hash them. Their gate (Alex, 2026-10-31, "Adopt (Recommended)"): after each build, untimed,
+`compile_curve.py` lists each compile's translation unit again with `g++ -MM` and that compile's
+flags, and records every listed file under `include/tep/` with its sha256 (`first_party_inputs`,
+each named `tep/include/tep/<file>` and hashed with CRLF read as LF, as `inputs_hash.py` names and
+hashes). A compile-curve number is citable only if, for every build behind it, each such file
+appears with the same sha256 in the list of a green GCC sanitizer record:
+`bench/check_compile_inputs.py --list <record>.inputs.tsv <curve>.jsonl` exits 0. The same holds
+for the Windows compile builds, which MinGW makes without sanitizers: the Linux GCC records cover
+the same first-party files (`coverage.json`, the Windows reflection gap). Generator P's compiles
+include no `include/tep/` file, so its builds record an empty map and pass trivially; an empty map
+is not a missing record. The files generated per build (the schema, the user program from
+`bench/gen_schema.py`, protoc's output) are in no record; `coverage.json` declares them. The
+campaign's compile-curve jobs run at the frozen commit, which has this step; the pilots (A45, A46
+at 1b93a97) predate it.
 
 `lab/bin/inputs_hash.py` hashes a target's own translation units and their headers, not the
 libraries it links, and `tep_server`'s own object is `main.cpp` alone (`server/CMakeLists.txt`):
@@ -87,8 +107,9 @@ and wrote no inputs file.
 
 ## Outputs
 
-Per record: the JSON record, the full logs under `~/lab/records-logs/<record>/` with a sha256, the
-compiler identification, and the protobuf build logs.
+Per record: the JSON record, the inputs hash (`--out`) and its file list (`--list`), the full logs
+under `~/lab/records-logs/<record>/` with a sha256, the compiler identification, and the protobuf
+build logs.
 
 ## Expected time
 

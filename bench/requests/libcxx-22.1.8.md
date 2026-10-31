@@ -64,13 +64,21 @@ dry run are reused. Two changes to the dry-run script come first:
 - the inputs hash per preset, as `sanitizer-records.md` now names it: the GCC records hash
   `tep_server`, `e2e_transport`, `e2e_arms` and `e2e_pb`; the clang records hash `test_schema`,
   `test_wire`, `test_grpc`, `fuzz_schema_smoke` and `fuzz_wire_smoke` (the first dry run hashed
-  `tep_server` alone for every preset);
+  `tep_server` alone for every preset), and each record keeps the per-file list too (`--list
+  <record>.inputs.tsv`), which the compile-curve gate matches against (Alex, 2026-10-31);
 - before the clang ASan and TSan builds, the check that `~/opt/libcxx-22.1.8` exists, as the MSan
   record checks `~/opt/libcxx-msan-gcc`.
 
+Then, as a check of the compile-curve gate at the laptop's paths (untimed, seconds):
+`python3 bench/compile_curve.py --gen R --shape wide --n 8 --rep 1 --no-time --work <dir> --out
+<dir>/gate.jsonl`, the same with `--gen P`, then `python3 bench/check_compile_inputs.py --list
+<GCC ASan record>.inputs.tsv <dir>/gate.jsonl`.
+
 Pass: all five green with their declared skips and 0 reports; each with a non-null
-`inputs_hash_file`; the GCC records' inputs list `server/` sources and the generated `e2e.pb.cc`,
-not `main.cpp` alone.
+`inputs_hash_file` and its list; the GCC records' inputs list `server/` sources and the generated
+`e2e.pb.cc`, not `main.cpp` alone; the gate check prints `R: covered 1` with 5 gated file entries,
+`P: covered 1` with 0, and `pass` (as in the desktop's dev image, and for MinGW builds on the
+desktop matched against a Linux list).
 
 ## Expected time
 

@@ -287,3 +287,29 @@ which build no `tep_server`. On the desktop the lab's tool hashed the clang targ
 the four server targets: 25 files, every `server/` source, the generated `e2e.pb.cc` and `e2e.pb.h`,
 and `include/tep/` with `schema.hpp`, `wire.hpp` and `grpc.hpp`, so the clang records cover headers
 the measured server compiles. The second dry run (request 19) covers all five records.
+
+## 2026-10-31. D5 gate of the compile-curve builds
+
+`bench/compile_curve.py` builds are not CMake builds, so `lab/bin/inputs_hash.py` cannot hash
+them. Alex, relayed by the coordinator, on the question "Adopt this as the lab rule for those
+builds?": "Adopt (Recommended)". The rule: each build records the first-party `include/tep/`
+files its compiles list, and each must appear with the same sha256 in a green GCC sanitizer
+record's file list.
+
+`compile_curve.py` now, after a build and untimed, runs `g++ -MM` on each compile phase's
+translation unit with that phase's flags, and records each listed file under `include/tep/` as
+`first_party_inputs` (`tep/include/tep/<file>`: sha256 with CRLF read as LF, as `inputs_hash.py`
+names and hashes), with `deps_exit`. The timed commands and the `phases` list are unchanged, and
+the step runs after the timed phases, so it warms nothing they read. `bench/check_compile_inputs.py`
+matches the records against `inputs_hash.py --list` files: exit 0 if every file matches, 1 if one
+is missing or differs, 2 if a built build has no inputs. Records must therefore keep `--list`
+(`sanitizer-records.md`; the first dry run kept none). Generator P's compiles include no
+`include/tep/` file: an empty map that passes. The per-build generated files are declared in
+`coverage.json` as in no record.
+
+Checked without timing (`--no-time`). In the dev image, R wide 8 and many 8 each recorded the
+five headers (`fixed_string.hpp`, `grpc.hpp`, `reflect.hpp`, `schema.hpp`, `wire.hpp`), P wide 8
+and many 8 none; against the `--list` of a `linux-gcc1620-e2e` build's four server targets the
+check passed, with one sha256 changed it exited 1, with a failed dependency step 2. MinGW builds on
+the desktop recorded the same five sha256 values and passed against the Linux list. A45 and A46
+(1b93a97) predate the step; the campaign's compile jobs run at the frozen commit.

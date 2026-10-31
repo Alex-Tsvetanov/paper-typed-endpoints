@@ -16,6 +16,12 @@ peak_commit_kib). The two are different measures, compared only within one OS. T
 user program are written before the first phase and are not timed. After the last phase the
 program runs once, untimed, and must print 0 with and without an argument.
 
+D5 gate (Alex, 2026-10-31; bench/requests/sanitizer-records.md): after a build, untimed, each
+compile phase's translation unit is listed again with `g++ -MM` and that phase's flags, and every
+listed file under include/tep/ is recorded with its sha256 (first_party_inputs, named and hashed
+as lab/bin/inputs_hash.py --list names and hashes them). bench/check_compile_inputs.py matches
+them against a green GCC sanitizer record's list. P's compiles include no include/tep/ file.
+
 Windows (MinGW-w64 GCC 16.2.0; Alex's Q4 of 2026-10-31): each phase runs in its own job object,
 started suspended, so its whole process tree is in the job. --cpu pins the job to one CPU, as
 taskset -c pins the build on Linux; --timeout ends the job's process tree. Both generators link
@@ -32,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -46,6 +53,7 @@ import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent
+GATED = REPO / "include" / "tep"
 STD = ["-std=c++26", "-O2"]
 STATIC_RUNTIME = ["-static-libstdc++", "-static-libgcc"]
 WINDOWS = os.name == "nt"
@@ -244,6 +252,35 @@ def plan(args) -> list[tuple[str, list[str]]]:
     ]
 
 
+def make_prerequisites(rule: str) -> list[str]:
+    """The prerequisites of the make rule `g++ -MM` prints: continuation lines joined, "\\ " read
+    as a space. A Windows drive's colon is never followed by a space, so ": " ends the target."""
+    body = rule.replace("\\\r\n", " ").replace("\\\n", " ")
+    return [token.replace("\\ ", " ") for token in re.findall(r"(?:\\ |\S)+", body.partition(": ")[2])]
+
+
+def first_party_inputs(steps: list[tuple[str, list[str]]], cell: pathlib.Path, env: dict | None) -> tuple[int, dict]:
+    """Untimed, after the build: `g++ -MM` of each compile phase's translation unit with that phase's
+    flags, and {"tep/include/tep/<file>": sha256} of the files it lists under include/tep/, the file
+    read with CRLF as LF (as lab/bin/inputs_hash.py hashes). Returns the first nonzero exit, or 0."""
+    repo = os.path.realpath(REPO)
+    gated = os.path.normcase(os.path.realpath(GATED)) + os.sep
+    status, files = 0, {}
+    for name, cmd in steps:
+        if not name.startswith("compile"):
+            continue
+        at = cmd.index("-c")
+        flags = [arg for arg in cmd[:at] if arg != "-ftime-report"]
+        out = subprocess.run([*flags, "-MM", cmd[at + 1]], cwd=cell, env=env, capture_output=True, text=True)
+        status = status or out.returncode
+        for dep in make_prerequisites(out.stdout):
+            real = os.path.realpath(cell / dep)
+            if os.path.normcase(real).startswith(gated):
+                path = "tep/" + real[len(repo) + 1:].replace(os.sep, "/")
+                files[path] = hashlib.sha256(pathlib.Path(real).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+    return status, dict(sorted(files.items()))
+
+
 def check(cell: pathlib.Path, env: dict | None, timeout: float | None) -> bool:
     exe = str(cell.resolve() / ("user" + EXE))
     for argv in ([exe], [exe, "x"]):
@@ -360,6 +397,8 @@ def main(argv: list[str]) -> int:
         "time_report": args.time_report, "timed": not args.no_time, "phases": records,
         "built": built, "checked": built and check(cell, env, args.timeout),
     }
+    if built:
+        result["deps_exit"], result["first_party_inputs"] = first_party_inputs(steps, cell, env)
     with open(args.out, "a", encoding="utf-8") as out:
         out.write(json.dumps(result) + "\n")
     if args.time_report or not result["checked"]:

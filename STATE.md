@@ -113,7 +113,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
       all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
-- [ ] Next: Laptop requests 17, 19 and the clang dry run of 16; then fill `hypotheses.md` section 7
+- [ ] Next: Laptop requests 17 (A46), 19 and the second dry run of 16 (A48); then fill `hypotheses.md` section 7
       by its rules (`bench/pilot/directions.py`) and freeze; 16 (D5 records) at the frozen commit.
 
 ## Laptop requests
@@ -146,20 +146,19 @@ queue; design, scope and pushes still go to Alex.
     arms within 1%. c1 m1 medium R/P 1.021 separated, R/Q 1.008. c12 m1 (server 98%): medium P 45.0k > S
     42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
 16. D5 records (`sanitizer-records.md`). Dry run 2026-10-31 (A45 q2 at 701fe83, 57339cf8...9edd): GCC ASan (24/24, fuzz,
-    load), GCC TSan, clang MSan green; clang ASan, TSan red (no libc++ on L: 19). Inputs rule fixed (tep_server = main.cpp).
+    load), GCC TSan, clang MSan green; clang ASan, TSan red (no libc++ on L: 19). Four-target inputs, lists kept (decision 12).
 17. Windows compile pilot (`compile-pilot-windows.md`): A40's 51 builds and the 60 of 18, MinGW, `--cpu 14`.
 18. Done 2026-10-31 (A45 q1 at 1b93a97, e15c8abc...bb3c). Pilot. 60 builds valid, 559 s. All 10 cells R faster,
     separated: wide 0.331 to 0.764, many 0.372 to 0.954 (many 512 closest). 10 Linux replicates of 18 cells: 3.2 h.
 19. Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`): Arch's package files from papers-dev, 67aad2ef...4007,
-    no download; clang ASan, TSan presets link it. Then a clang-only dry run of 16.
+    no download; clang ASan, TSan presets link it. Then a second dry run of all five records and the gate check (A48).
 
 ## Lab requests
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 
-1. Done 2026-10-29: protobuf 36.2 and abseil 20250512.1 in `C:\Users\alext\opt\_dl\p5-protobuf-36.2`.
-2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2, ghz v0.121.0, pinned sha256; `go.sum`.
-3. Done 2026-10-30: nghttp2 1.70.0 and libev 4.33 (source). 4. Done 2026-10-24: MinGW zip on the laptop.
+1. Done 2026-10-29: protobuf 36.2, abseil 20250512.1 (`C:\Users\alext\opt\_dl\p5-protobuf-36.2`). 4. Done 2026-10-24: MinGW zip.
+2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2, ghz v0.121.0, `go.sum`. 3. Done: nghttp2 1.70.0, libev 4.33.
 
 ## Alex decides
 
@@ -188,9 +187,10 @@ From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coord
 11. Freeze proposal (2026-10-31, relayed; verbatim in `hypotheses.md` section 6), recommended each:
     Q1 freeze R, P, Q now (G later); Q2 small c1 m1 no direction; Q3 many claim; Q4 port and pilot.
     Then (a) to (e): "Accept all (Recommended)"; Windows latency, mean call cycle: "Accept (Recommended)".
+12. D5 gate of the compile-curve builds (2026-10-31, relayed): "Adopt (Recommended)". `compile_curve.py` records
+    `first_party_inputs` (g++ -MM, untimed); `bench/check_compile_inputs.py` matches a green GCC record's `--list`.
 
-Open: none. The two report drafts are in `design/gcc-report-drafts.md` (F2 is probably GCC PR
-71962; Bugzilla refuses automated searches, so Alex checks for duplicates by hand before filing).
+Open: none. Report drafts: `design/gcc-report-drafts.md` (F2 probably GCC PR 71962; Alex checks duplicates by hand).
 
 ## Never
 

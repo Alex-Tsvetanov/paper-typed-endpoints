@@ -32,5 +32,9 @@
     },
     "reflection": "gap: on Windows only MinGW-w64 GCC 16 builds the reflection layer and arm R, and it has no ASan or UBSan; MSVC and clang-cl have no P2996. The Linux GCC ASan+UBSan and TSan records cover the same first-party inputs (CLAUDE.md D5; p5-typed-endpoints/AGENTS.md line 24)"
   },
+  "compile_curve": {
+    "gate": "the compile-curve builds (bench/compile_curve.py) are not CMake builds, so lab/bin/inputs_hash.py cannot hash them. Each build records, untimed, the include/tep/ files its compiles list under g++ -MM with their sha256 (first_party_inputs); each must appear with the same sha256 in the inputs_hash.py --list file of a green GCC sanitizer record (bench/check_compile_inputs.py exits 0). Windows compile builds match the Linux records, as the Windows reflection gap above states. Generator P's compiles include no include/tep/ file (Alex, 2026-10-31, \"Adopt (Recommended)\"; bench/requests/sanitizer-records.md)",
+    "generated": "gap: the files each build generates (schema.proto and the user program from bench/gen_schema.py; protoc's schema.pb.* for P) are compiled but in no sanitizer record. The measured quantities are the compiler's time and memory; the program's one run is a functional check, not a measurement"
+  },
   "third_party": "protoc, libprotobuf, nghttp2, grpc-go and the load generator are pinned arms or tools, not sanitized first-party code"
 }
