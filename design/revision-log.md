@@ -221,3 +221,7 @@ passes an absolute one, so no result is affected); on Windows the error mode sup
 dialogs, the check has the phase timeout, a failed start reports its NTSTATUS and never leaves a
 suspended process; `directions.py` pools per OS and `ops_limit`; `compare_runs.py` reads Windows
 records.
+Alex accepted the draft's choices (a) to (e) the same day (AskUserQuestion, relayed by the
+coordinator): "Accept all (Recommended)" (quoted in `hypotheses.md` section 6). Laptop plan:
+request 18 and request 16's dry run as chain A45 on Linux after P4's set 1; request 17 at the next
+Windows slot after A43b's protobuf build.

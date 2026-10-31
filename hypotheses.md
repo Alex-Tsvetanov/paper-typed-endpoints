@@ -155,6 +155,12 @@ Every timed build is the optimized Release build; sanitizer and Debug builds are
   direction (Recommended)".
 - Q4 "P5 Windows compile curves (the tool is Linux only). What to do?" = "Port and pilot
   (Recommended)".
+- The choices this file makes within those answers, put to Alex the same day: "(a) no-direction
+  cells get intervals, not two-sided tests; (b) one Holm family per experiment across both OSes;
+  (c) a cell takes a direction only from a pilot on that OS with every R build on one side of every
+  P build, which adds many 16 to 512 (many 16 on Linux = R faster); (d) compile time includes the
+  link; (e) the Windows end-to-end hypothesis needs the server at CPU share of at least 0.95 at
+  c12 m128. Accept?" = "Accept all (Recommended)".
 
 ## 7. Values filled at the freeze (by the rules above, from the pilots named)
 

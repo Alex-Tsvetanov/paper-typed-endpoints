@@ -188,6 +188,7 @@ From the laptop queue plan, answered by Alex on 2026-10-23 (relayed by the coord
     on both?"): "Pin 16.2.0 on both". Linux build request: `bench/requests/gcc-16.2.0.md`.
 11. Freeze proposal (2026-10-31, relayed; verbatim in `hypotheses.md` section 6), recommended each:
     Q1 freeze R, P, Q now (G later); Q2 small c1 m1 no direction; Q3 many claim; Q4 port and pilot.
+    Then the draft's choices (a) to (e): "Accept all (Recommended)".
 
 Open: none. The two report drafts are in `design/gcc-report-drafts.md` (F2 is probably GCC PR
 71962; Bugzilla refuses automated searches, so Alex checks for duplicates by hand before filing).
