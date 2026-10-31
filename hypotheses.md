@@ -80,7 +80,8 @@ once after the last replicate. A second failure makes the cell descriptive, and 
 ## 3. End-to-end experiment
 
 Arms R, P and Q are compared; S runs as the reference. `tep_server` with one worker on CPU 14,
-its sibling 15 idle. Load generator on Linux: h2load 1.70.0 (pinned build) on CPUs 2 to 13; on
+its sibling 15 idle; boost off, as every P5 pilot ran (`"boost": false`); after the lab's quiet
+check. Load generator on Linux: h2load 1.70.0 (pinned build) on CPUs 2 to 13; on
 Windows: ghz v0.121.0 (pinned) with affinity 0x3FFC and `--cpus 12`, mapped from h2load's
 connections and streams as in Laptop request 15 (`bench/requests/e2e-pilot-windows.md`).
 
@@ -107,8 +108,9 @@ Hypotheses. Contrasts R against P and R against Q.
   0.3% of every arm there).
 - Rule: a contrast carries its hypothesis on an OS only if that OS's pilot windows for it are
   separated in the claimed direction. On Windows, E1 also needs the Windows pilot to show the
-  server at a CPU share of at least 0.95 at c12 m128 for every arm and payload (ghz saturates the
-  server); otherwise the Windows E1 contrasts are descriptive. Any other contrast is descriptive.
+  server at a CPU share of at least 0.95 at c12 m128 for every arm and payload; otherwise the
+  Windows E1 contrasts are descriptive. The 0.95 is a design choice, not a measured value: E1
+  compares the servers only if ghz saturates the server's one CPU. Any other contrast is descriptive.
 - Known on Linux from Laptop request 14 (pilot 5): every E1 and E2 contrast separated in the
   claimed direction (R/P small 1.084, medium 1.234; R/Q small 1.046, medium 1.028 at c12 m128;
   medium R/P 1.057, R/Q 1.023 at c1 m1). Open: section 7, item 3.
@@ -130,9 +132,9 @@ by ghz for R and P, 4 windows each, reported as a check of the load generator, n
 
 ## 4. Reported without hypotheses
 
-Heap allocations per call (`test_allocs`, a count from the frozen build): small 0 for every arm,
-medium S 0, P 32, Q 0, R 0; when calls alternate between the medium order and a smaller one, R 4,
-P 30, Q 0 per call (the measured runs send one fixed body per window; a threat, not a result).
+Heap allocations per call (`test_allocs`, counted from the frozen build, untimed): per arm and
+payload for identical requests, and when calls alternate between the medium order and a smaller
+one (the measured runs send one fixed body per window, so the alternating count is a threat).
 Interoperability with grpc-go (functional, every field checked). The constant-evaluation
 operation counts of the schema tables (deterministic for one GCC build).
 
