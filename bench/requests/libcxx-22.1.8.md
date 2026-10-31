@@ -55,15 +55,25 @@ resolves `libc++.so.1` and `libc++abi.so.1` there.
 TSan with an uninstrumented libc++ is the usual practice and what the presets have done on the
 desktop; libc++'s own code is not checked by these records, only P5's.
 
-## Then: a second dry run of the clang records
+## Then: a second dry run of all five Linux records
 
-After this request, run Laptop request 16's dry run again for the three clang records only
-(`linux-clang-asan`, `linux-clang-tsan`, `linux-clang-msan`), at the newest P5 commit, before the
-freeze, so a first finding under clang ASan or TSan on the laptop shows while it can be fixed.
-Pass: all three green, 8 tests each with `reflection_layer` the only skip, 0 reports, and each with
-a non-null `inputs_hash_file` from the clang inputs rule of `sanitizer-records.md`.
+After this request, run Laptop request 16's dry run again for all five Linux records at the newest
+P5 commit, before the freeze, so a first finding under clang ASan or TSan, and the new inputs rule,
+show on the laptop while they can still be fixed. The sanitizer protobuf prefixes from the first
+dry run are reused. Two changes to the dry-run script come first:
+- the inputs hash per preset, as `sanitizer-records.md` now names it: the GCC records hash
+  `tep_server`, `e2e_transport`, `e2e_arms` and `e2e_pb`; the clang records hash `test_schema`,
+  `test_wire`, `test_grpc`, `fuzz_schema_smoke` and `fuzz_wire_smoke` (the first dry run hashed
+  `tep_server` alone for every preset);
+- before the clang ASan and TSan builds, the check that `~/opt/libcxx-22.1.8` exists, as the MSan
+  record checks `~/opt/libcxx-msan-gcc`.
+
+Pass: all five green with their declared skips and 0 reports; each with a non-null
+`inputs_hash_file`; the GCC records' inputs list `server/` sources and the generated `e2e.pb.cc`,
+not `main.cpp` alone.
 
 ## Expected time
 
-Minutes: a copy, a check and an extraction. The second dry run: clang MSan took 18 s on the
-laptop in A45; ASan and TSan build and run the same 8 tests.
+Minutes: a copy, a check and an extraction. The second dry run: A45's took 552 s with the two
+protobuf builds (245 s) and two clang records that stopped at once; without the protobuf builds,
+and with clang ASan and TSan building and running their 8 tests, a cap of 1 hour.

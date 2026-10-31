@@ -283,4 +283,7 @@ code is in `e2e_transport`, `e2e_arms` and `e2e_pb`. `sanitizer-records.md` now 
 targets for the GCC and MSVC records and the measured release builds, and the five portable
 targets (`test_schema`, `test_wire`, `test_grpc`, the two fuzz smokes) for the clang records,
 which build no `tep_server`. On the desktop the lab's tool hashed the clang targets: `schema.hpp`,
-`wire.hpp`, `grpc.hpp` with their tests and fuzz drivers.
+`wire.hpp`, `grpc.hpp` with their tests and fuzz drivers. On a `linux-gcc1620-e2e` build it hashed
+the four server targets: 25 files, every `server/` source, the generated `e2e.pb.cc` and `e2e.pb.h`,
+and `include/tep/` with `schema.hpp`, `wire.hpp` and `grpc.hpp`, so the clang records cover headers
+the measured server compiles. The second dry run (request 19) covers all five records.
