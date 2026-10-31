@@ -260,3 +260,27 @@ to 4096 R slower. The crossover of the many shape lies between 512 and 1024 fiel
 the smallest margin (R 19.1 s, P 19.8 s medians), so its paired test is the one most likely to
 fail; the rule is applied as written. Summed pilot medians put ten Linux replicates of the 18
 cells at about 3.2 h of builds.
+
+## 2026-10-31. Dry run of the D5 records (Laptop request 16, A45) and the clang libc++
+
+A45's second job dry-ran the five Linux records at 701fe83 (archive sha256 57339cf8...9edd). GCC
+ASan+UBSan green (24 tests, `allocs` the declared skip; the fuzz smoke; 8 load runs, every arm and
+body, 0 failed checks), GCC TSan green (24 tests, 8 load runs on two workers), clang MSan green
+(8 tests, `reflection_layer` the declared skip). Clang ASan and TSan red in about 1 s: CMake's
+compiler check failed at link, since the laptop has no libc++ but the MSan-instrumented one.
+
+Fix (Laptop request 19, `bench/requests/libcxx-22.1.8.md`): Arch's `libc++` and `libc++abi`
+22.1.8-1, the same version as the laptop's clang, copied from the desktop's dev image into a
+prefix tarball (sha256 67aad2ef...4007, every file in a manifest; `pacman -Qkk` 0 altered files).
+No download and no build. `linux-clang-asan` and `linux-clang-tsan` now name the prefix
+`~/opt/libcxx-22.1.8` as `linux-clang-msan` names its own. In the dev image with its own libc++
+removed, both presets built and passed 8 of 8 against the extracted tarball, and the tests load
+libc++ from the prefix. A clang-only dry run follows before the freeze.
+
+The dry run also showed that the inputs hash named too little. `inputs_hash.py` hashes a target's
+own translation units, and `tep_server`'s is `main.cpp` (4 files, 1 translation unit); the measured
+code is in `e2e_transport`, `e2e_arms` and `e2e_pb`. `sanitizer-records.md` now names those four
+targets for the GCC and MSVC records and the measured release builds, and the five portable
+targets (`test_schema`, `test_wire`, `test_grpc`, the two fuzz smokes) for the clang records,
+which build no `tep_server`. On the desktop the lab's tool hashed the clang targets: `schema.hpp`,
+`wire.hpp`, `grpc.hpp` with their tests and fuzz drivers.

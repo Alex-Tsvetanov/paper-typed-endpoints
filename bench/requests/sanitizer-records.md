@@ -20,7 +20,9 @@ shows a red record while it can still be fixed.
 ## Prerequisites (untimed, laptop's Arch)
 
 1. Already there: `~/opt/gcc-16.2.0`, `~/opt/nghttp2-1.70.0`, `~/opt/h2load-1.70.0`, clang 22.1.8 and
-   `~/opt/libcxx-msan-gcc` (the MSan-instrumented libc++ P1's records use).
+   `~/opt/libcxx-msan-gcc` (the MSan-instrumented libc++ P1's records use). From Laptop request 19
+   (`libcxx-22.1.8.md`): `~/opt/libcxx-22.1.8`, the plain libc++ the clang ASan and TSan presets
+   link (the dry run of 2026-10-31 found no libc++ on the laptop).
 2. Copy `C:\Users\alext\opt\_dl\p5-protobuf-36.2\` from the desktop (as in Laptop request 3), then
    build abseil and protobuf twice with the presets' sanitizer flags (protobuf's data layouts and
    checks change under the sanitizers, so it must be built with the same flags):
@@ -67,6 +69,21 @@ The measured end-to-end binary is `tep_server` (target `tep_server`, presets
 `include/tep/` with a generated schema (`bench/compile_curve.py`); the records' test targets
 compile the same headers. Options that select code: `TEP_E2E`, `TEP_E2E_TRANSPORT_ONLY`,
 `TEP_FUZZ`. How a record gates the compile-curve builds is the lab's rule to apply.
+
+`lab/bin/inputs_hash.py` hashes a target's own translation units and their headers, not the
+libraries it links, and `tep_server`'s own object is `main.cpp` alone (`server/CMakeLists.txt`):
+the measured code is in the static libraries `e2e_transport`, `e2e_arms` and `e2e_pb`. Every GCC
+and MSVC record, and every measured release build, therefore hashes the targets `tep_server`,
+`e2e_transport`, `e2e_arms` and, where the build has it (not under `TEP_E2E_TRANSPORT_ONLY`),
+`e2e_pb`. The dry run of 2026-10-31 hashed `tep_server` alone: 4 files, 1 translation unit.
+
+The clang records build no `tep_server` (the reflection layer needs P2996, which clang lacks), so
+their inputs hash names the portable targets they build: `test_schema`, `test_wire`, `test_grpc`,
+`fuzz_schema_smoke` and `fuzz_wire_smoke`, with the same root label and option keys. On the desktop
+(`lab/bin/inputs_hash.py` on a `linux-clang-asan` build) these hash `include/tep/schema.hpp`,
+`wire.hpp`, `grpc.hpp` and their tests and fuzz drivers: the portable layers that `tep_server` also
+compiles. The dry run of 2026-10-31 hashed `tep_server` in the clang MSan record, found no objects,
+and wrote no inputs file.
 
 ## Outputs
 

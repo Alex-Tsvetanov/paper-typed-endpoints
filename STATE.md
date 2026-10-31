@@ -113,8 +113,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
       all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
-- [ ] Next: Laptop request 17 (15 and 18 done), then fill `hypotheses.md` section 7 by its rules
-      (`bench/pilot/directions.py`) and freeze; 16 (D5 records) at the frozen commit.
+- [ ] Next: Laptop requests 17, 19 and the clang dry run of 16; then fill `hypotheses.md` section 7
+      by its rules (`bench/pilot/directions.py`) and freeze; 16 (D5 records) at the frozen commit.
 
 ## Laptop requests
 
@@ -122,13 +122,10 @@ Since 2026-10-26 (Alex, AGENTS.md bc1a76d) a ready request goes straight to the 
 queue; design, scope and pushes still go to Alex.
 
 1. and 4. Done 2026-10-24 (`gap1-a-q4-*`: F1 at -O1, -O2) and 2026-10-29 (A19: `~/opt/gcc-16.2.0` on Arch).
-2. Done 2026-10-29 (A23 at c525595, `gap44-a-q1-p5-pilot-c2670a4d`, 4b01a015...cc82): within 0.3%.
-3. Done 2026-10-30 (A31 at fce6a17; `gap52-a-q2-p5-e2e-run-2bd355f5` 30ed7123...619e): knee c12 m128.
+2. and 3. Done (A23 at c525595, 4b01a015...cc82: within 0.3%; A31 at fce6a17, 30ed7123...619e: knee c12 m128).
 5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-...` 22574257...4710), A28 at 614c9f4 (b90f1c76...e749).
-7. Done 2026-10-30 (A29 at fa60375, `gap50-a-q1-p5-rerun3-4b1cde4a` 345bea80...bf09): before reuse.
-   51/51. R/P 0.29, 0.30 at 16; wide 0.86, 0.90, 0.77 (1024 to 4096); many 1.00, 1.20, 1.56.
-8. and 9. Done 2026-10-30 (A33 at 16fdbd5, `gap55-*`; A35 at 3537817, `gap57-*`). Pilots. libc 22.5% of
-   R's medium cycles (62 allocations); then Q beat R on medium, R beat P, Q on small.
+7. Done 2026-10-30 (A29 at fa60375, 345bea80...bf09): before reuse. R/P wide 0.86, 0.90, 0.77; many 1.00, 1.20, 1.56.
+8. and 9. Done 2026-10-30 (A33 at 16fdbd5, A35 at 3537817). Pilots. libc 22.5% of R's medium cycles; then Q beat R.
 10. Done 2026-10-30 (A38 step 1 at 30818a5, `gap60-a-q1-*` 5f817497...acc6): 51/51. R/P many 0.33, 1.24,
     1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
 11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`, `gap60-a-q2/q3-*`). Pilot. 264 windows; no order
@@ -148,10 +145,13 @@ queue; design, scope and pushes still go to Alex.
     Pilot. ctest 23/23, 264 windows, checks pass. c12 m128 bounded by ghz (97% of 12 CPUs; server 24-62%):
     arms within 1%. c1 m1 medium R/P 1.021 separated, R/Q 1.008. c12 m1 (server 98%): medium P 45.0k > S
     42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
-16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; sent for a dry run.
+16. D5 records (`sanitizer-records.md`). Dry run 2026-10-31 (A45 q2 at 701fe83, 57339cf8...9edd): GCC ASan (24/24, fuzz,
+    load), GCC TSan, clang MSan green; clang ASan, TSan red (no libc++ on L: 19). Inputs rule fixed (tep_server = main.cpp).
 17. Windows compile pilot (`compile-pilot-windows.md`): A40's 51 builds and the 60 of 18, MinGW, `--cpu 14`.
 18. Done 2026-10-31 (A45 q1 at 1b93a97, e15c8abc...bb3c). Pilot. 60 builds valid, 559 s. All 10 cells R faster,
     separated: wide 0.331 to 0.764, many 0.372 to 0.954 (many 512 closest). 10 Linux replicates of 18 cells: 3.2 h.
+19. Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`): Arch's package files from papers-dev, 67aad2ef...4007,
+    no download; clang ASan, TSan presets link it. Then a clang-only dry run of 16.
 
 ## Lab requests
 
