@@ -113,7 +113,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
       all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
-- [ ] Next: Laptop requests 15 (A43), 17 and 18, then fill `hypotheses.md` section 7 by its rules
+- [ ] Next: Laptop request 17 (15 and 18 done), then fill `hypotheses.md` section 7 by its rules
       (`bench/pilot/directions.py`) and freeze; 16 (D5 records) at the frozen commit.
 
 ## Laptop requests
@@ -135,9 +135,8 @@ queue; design, scope and pushes still go to Alex.
     effect. Q beat R on medium from c12 m8 (0.94 to 0.85). Medium cycles:u per request R 8,902, Q 7,751.
 12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`). Pilot. R many 1024 to 4096 -4.9, -13.1, -24.3%.
 13. Done 2026-10-31 (A40 at db1f31c, `compile-rerun-5.md`; `gap62-a-q1-p5-rerun5-96943287` 3ce6458f...e246).
-    Pilot. 51/51; P within 0.8% of A38. R many against A29 (before reuse) +14.4, +7.9, -6.8%; R wide
-    against A38 +0.9 to +1.6%, every build separated: a loss. R/P many
-    0.32, 1.14, 1.29, 1.45; wide 0.31, 0.90, 0.92, 0.76. RSS R many 4096 4,059 MiB, 2.1 times P (A29 2.9).
+    Pilot. 51/51; P within 0.8% of A38. R many against A29 +14.4, +7.9, -6.8%; R wide against A38 +0.9 to
+    +1.6% (a loss). R/P many 0.32, 1.14, 1.29, 1.45; wide 0.31, 0.90, 0.92, 0.76. RSS R many 4096 4,059 MiB.
 14. Done 2026-10-31 (A40 at db1f31c, `e2e-pilot-5.md`; `gap62-a-q2-p5-e2e5-build-7c02aacf` b380de1a...7d8d,
     `gap62-a-q3-p5-e2e5-run-ccf9cf23` b566c31e...7744). Pilot. ctest 24 of 24; R medium 0 allocations; 264
     windows, checks pass; second runs within 1.5%. Every R window above every Q window in 12 of 14 cells:
@@ -151,7 +150,8 @@ queue; design, scope and pushes still go to Alex.
     42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
 16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; sent for a dry run.
 17. Windows compile pilot (`compile-pilot-windows.md`): A40's 51 builds and the 60 of 18, MinGW, `--cpu 14`.
-18. Linux compile pilot of sizes 32 to 512 (`compile-gap-sizes.md`): 60 builds; with 16's dry run as A45 (tools d107063).
+18. Done 2026-10-31 (A45 q1 at 1b93a97, e15c8abc...bb3c). Pilot. 60 builds valid, 559 s. All 10 cells R faster,
+    separated: wide 0.331 to 0.764, many 0.372 to 0.954 (many 512 closest). 10 Linux replicates of 18 cells: 3.2 h.
 
 ## Lab requests
 

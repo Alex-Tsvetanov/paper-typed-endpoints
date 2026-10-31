@@ -247,3 +247,16 @@ windows, every status OK, server counts within the bound. `bench/pilot/pilot_e2e
   P 71.4k. P above S, the transport with no codec, is not a codec cost; Linux shows no such
   inversion. Cause unknown; reported as a Windows transport regime in the threats. Not added as a
   cell: the accepted rule fixed the cells before this pilot.
+
+## 2026-10-31. Linux compile pilot of sizes 32 to 512 (Laptop request 18, A45)
+
+A45's first job ran at 1b93a97 (archive sha256 e15c8abc...bb3c): 60 builds, every one built and
+checked, 30 per generator, `ops_limit` 0; 559 s, well inside the request's bound of 1,821 s.
+`bench/pilot/directions.py`, pooled with Laptop request 13: all ten new cells R faster, every R
+build ahead of every P build. Whole-build R/P, wide 32 to 512: 0.331, 0.395, 0.495, 0.627, 0.764;
+many: 0.372, 0.472, 0.572, 0.759, 0.954. On Linux every one of the 18 cells now has a direction
+(section 7, item 1, filled at the freeze): wide all R faster, many 16 to 512 R faster, many 1024
+to 4096 R slower. The crossover of the many shape lies between 512 and 1024 fields. Many 512 has
+the smallest margin (R 19.1 s, P 19.8 s medians), so its paired test is the one most likely to
+fail; the rule is applied as written. Summed pilot medians put ten Linux replicates of the 18
+cells at about 3.2 h of builds.
