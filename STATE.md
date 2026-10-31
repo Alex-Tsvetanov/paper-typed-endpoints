@@ -148,10 +148,10 @@ queue; design, scope and pushes still go to Alex.
     m128 (1.016, overlap). R/P small 1.03 to 1.09, medium 1.06 to 1.25. Against pilot 4: S, P, Q within 2%,
     R medium +3.6 to +19%. Medium cycles:u per request R 7,659, Q 7,820; libc R 455. Clearing kept
     storage (`clear_within_slack`, `truncate`) is 3.5% of R's medium cycles. Analysis: `bench/pilot/`.
-15. Windows pilot (`e2e-pilot-windows.md`, at 40e9211): MinGW builds, pilot 5's design with ghz; A43b (tools 8a7ea7d) 2026-10-31 15:53, after A43's build check misread MinGW ctest's wording.
+15. Windows pilot (`e2e-pilot-windows.md`, at 40e9211): MinGW builds, pilot 5's design with ghz; A43b (tools 8a7ea7d) 2026-10-31 15:53; its build exited 0 at 15:58, the run followed.
 16. D5 records (`sanitizer-records.md`): GCC ASan+UBSan and TSan, clang set, MSVC ASan; sent for a dry run.
 17. Windows compile pilot (`compile-pilot-windows.md`): A40's 51 builds and the 60 of 18, MinGW, `--cpu 14`.
-18. Linux compile pilot of sizes 32 to 512 (`compile-gap-sizes.md`): 60 builds, at most 30 minutes.
+18. Linux compile pilot of sizes 32 to 512 (`compile-gap-sizes.md`): 60 builds; with 16's dry run as A45 (tools d107063).
 
 ## Lab requests
 
