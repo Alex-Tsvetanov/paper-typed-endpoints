@@ -111,8 +111,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       fixed or accepted (revision log). Outside it: compile builds lacked `-DNDEBUG`, no compile pilot Release.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11). `hypotheses.md` FROZEN 2026-11-01 (704061a); m 36 and 7.
 - [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
-- [x] Request 16, L (A52, 2026-11-01): five records green at 9a3dc92; GCC lists 25 entries, all first-party files match the commit; gate pass. The W record failed to start (a chain bug), rerun as A54.
-- [ ] Next: W record rerun (A54 red on the script's "no skips" rule, revision log). No campaign before it is green; then 25's build, 23, 25 on W, 22, 24, 26 on L.
+- [x] Request 16 (2026-11-01), all six records green at 9a3dc92: L A52, GCC lists 25 entries, all match the commit, gate pass; W A57, the rerun (A54 red on the script's "no skips" rule, revision log), 13 entries equal to A54's.
+- [ ] Next: A55 runs the campaign (W q2, q1, q3, then L q4 to q7). Analyse each archive at c5a326b; a campaign that ran is never rerun.
 
 ## Laptop requests
 
@@ -142,8 +142,8 @@ queue; design, scope and pushes still go to Alex.
     Pilot. ctest 23/23, 264 windows, checks pass. c12 m128 bounded by ghz (97% of 12 CPUs; server 24-62%):
     arms within 1%. c1 m1 medium R/P 1.021 separated, R/Q 1.008. c12 m1 (server 98%): medium P 45.0k > S
     42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
-16. D5 records (`sanitizer-records.md`). Dry run 1 2026-10-31 (A45 q2 at 701fe83, 57339cf8...9edd): clang ASan, TSan red (19).
-    Dry run 2 2026-11-01 (A48 q2 at 230315e, af17ce75...e4d0): all five green, four-target inputs with lists, gate pass.
+16. Done 2026-11-01 at 9a3dc92 (`sanitizer-records.md`): L A52 (filed 811e13f), W A57 (filed 541a114). Dry runs:
+    1 (A45 q2 at 701fe83, 57339cf8...9edd) clang ASan, TSan red (19); 2 (A48 q2 at 230315e, af17ce75...e4d0) all green.
 17. and 18. Done (A46 W, a6a2bde7...ebca; A45 q1 L, e15c8abc...bb3c; at 1b93a97). Without `-DNDEBUG`, so they fix
     no direction (superseded by 20 and 21). All cells separated; many 512 was R faster then (0.954 L, 0.969 W).
 19. Done 2026-11-01 (A48 q1, c8881c94...89e8). Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`, 67aad2ef...4007):
@@ -151,7 +151,7 @@ queue; design, scope and pushes still go to Alex.
 20. and 21. Done 2026-11-01 (A50 at 9a3dc92, tools a24f257; L 4fd1df21...51bd, W 7e18a113...da37). Release flags. 222
     builds valid, gates pass, self-test ok. All 36 cells separated: wide R faster (L 0.314 to 0.844, W 0.322 to 0.835); many
     R faster 16 to 256, slower 512 to 4096 (512 flipped: 1.015 L, 1.014 W). 3,523 s, 3,839 s; 10 replicates L 3.3 h, W 3.6 h.
-22. to 26. At CODE_FREEZE, after 16 is green: `compile-campaign.md` (22 L, 23 W), `e2e-campaign.md` (24 L, 25 W),
+22. to 26. Running as A55 (2026-11-01, at CODE_FREEZE): `compile-campaign.md` (22 L, 23 W), `e2e-campaign.md` (24 L, 25 W),
     `functional-evidence.md` (26 L, untimed: interop, constant-evaluation counts).
 
 ## Lab requests
