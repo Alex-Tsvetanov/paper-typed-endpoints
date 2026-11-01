@@ -313,3 +313,24 @@ and many 8 none; against the `--list` of a `linux-gcc1620-e2e` build's four serv
 check passed, with one sha256 changed it exited 1, with a failed dependency step 2. MinGW builds on
 the desktop recorded the same five sha256 values and passed against the Linux list. A45 and A46
 (1b93a97) predate the step; the campaign's compile jobs run at the frozen commit.
+
+## 2026-11-01. Windows compile pilot (Laptop request 17, A46)
+
+A46 ran on the laptop's Windows at 1b93a97 (archive sha256 a6a2bde7...ebca) with MinGW-w64 GCC
+16.2.0 (winlibs r3) and `--cpu 14`. The self-test passed (grandchild memory counted, grandchild
+pinned, timeout ends the tree). 111 builds, block 1 in request 13's order and block 2 in request
+18's, every one built and checked; all 330 phase records read back affinity `0x4000`, none timed
+out, and every check of the request passed. 3,885 s, inside the request's slot of 4 hours.
+
+`bench/pilot/directions.py` (whole builds, link included): all 18 Windows cells separated, each in
+the direction Linux shows. Wide, R faster, 16 to 4096 fields: 0.313, 0.340, 0.403, 0.494, 0.629,
+0.767, 0.900, 0.886, 0.726. Many, R faster from 16 to 512: 0.332, 0.375, 0.472, 0.572, 0.768,
+0.969; R slower from 1024: 1.129, 1.290, 1.438. With Linux, all 36 compile cells carry a
+direction (section 7, items 1 and 2, filled at the freeze), so the compile family has m = 36, and
+2^-10 = 0.00098 < 0.05/36 = 0.00139. Many 512 has the smallest margin on both OSes (on Windows R
+20.48 s against P 20.94 s, medians; ranges 20.46 to 20.57 and 20.88 to 21.04).
+
+The `-ftime-report` builds of R split as on Linux (`bench/pilot/phase_split.py`): opt and generate
+72%, 74% and 77% of TOTAL for many 1024, many 2048 and wide 1024 (Linux 72%, 74%, 78%). Largest
+peak committed memory: R many 4096, 4,416 MiB (median of 3). Summed pilot medians put ten Windows
+replicates of the 18 cells at about 3.4 h of builds (Linux 3.2 h).

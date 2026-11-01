@@ -56,7 +56,10 @@ Hypotheses. One contrast per cell and OS: R against P on the primary measure.
   faster, separated (whole-build ratios 0.302, 0.893, 0.915, 0.759); many 16 R faster (0.319);
   many 1024, 2048, 4096 R slower (1.128, 1.289, 1.449). Known on Linux from Laptop request 18 (A45,
   3 builds per generator): every cell of 32 to 512 fields R faster, separated (wide 0.331 to 0.764;
-  many 0.372 to 0.954, the smallest margin at many 512). Open: section 7, items 1 and 2.
+  many 0.372 to 0.954, the smallest margin at many 512). Known on Windows from Laptop request 17
+  (A46, 3 builds per generator): all 18 cells separated, each in the direction Linux shows (wide
+  0.313 to 0.900; many 16 to 512 0.332 to 0.969, the smallest margin at many 512; many 1024, 2048,
+  4096 1.129, 1.290, 1.438). Open: section 7, items 1 and 2.
 
 Design (D9). Ten build pairs per cell and OS; a pair is one R and one P build of the cell. Within
 each replicate the 18 cells run in a seeded random order and the two builds of a pair in a seeded
