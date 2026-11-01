@@ -110,8 +110,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       answered by Alex (revision log; review 4's M1 MinGW emulated TLS, M2 Windows record transport only).
 - [x] Sixth fresh review (Opus, 88e5b4c..ce2413c, 2026-11-01): no CRITICAL or HIGH; 2 MEDIUM (gate), 14 LOW,
       fixed or accepted (revision log). Outside it: compile builds lacked `-DNDEBUG`, no compile pilot Release.
-- [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
-- [ ] Next: 20 and 21 at the review-6 commit (CODE_FREEZE); section 7 and the freeze; 16 at CODE_FREEZE; campaigns.
+- [x] Freeze proposal answered by Alex (2026-10-31, decision 11). `hypotheses.md` FROZEN 2026-11-01 (704061a); m 36 and 7.
+- [ ] Next: request 16 (D5 records) at CODE_FREEZE 9a3dc92; then the campaigns' requests, at CODE_FREEZE.
 
 ## Laptop requests
 

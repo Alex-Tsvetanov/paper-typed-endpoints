@@ -455,3 +455,15 @@ Peak memory of R many 4096: 4,053 MiB resident on Linux, 4,401 MiB committed on 
 of 3). Summed pilot medians put ten replicates of the 18 cells at 3.1 h of builds on Linux and
 3.35 h on Windows; with each job's own overhead (5%, 6%), about 3.3 h and 3.6 h, against the 3.2 h
 and 3.4 h stated before. No defect was found, so `CODE_FREEZE` stays 9a3dc92.
+
+## 2026-11-01. Hypotheses frozen (704061a); CODE_FREEZE 9a3dc92
+
+`hypotheses.md` was frozen by 704061a, which changed only its status paragraph and section 7. The
+values follow the rules of sections 2 and 3, written before requests 20 and 21 ran: all 36 compile
+cells directional (requests 20 and 21; many 512 R slower, outside C2's range), the four Windows E1
+contrasts and Windows E2 R against Q descriptive, Windows E2 R against P a hypothesis (request
+15, its analysis rerun at 9a3dc92 with the same output). Families: compile m = 36, end to end
+m = 7. The commit before it, 89e3072, replaced only section 2's descriptive bullet that quoted the
+pilots without `-DNDEBUG` with the Release-flag pilots' values; no rule and no hypothesis changed.
+`CODE_FREEZE` is 9a3dc92: since it only `hypotheses.md`, `STATE.md` and this log have changed.
+Request 16 (the D5 records) runs at it, and so do the campaigns' builds.
