@@ -73,16 +73,25 @@ Files: `h2load-<arm>-<payload>-c<c>-m<m>-r<rep>-<k>.txt` on Linux,
 One window: on Linux h2load as `win()` in `lab/laptop/linux/p5/e2e-pilot5-run.sh` (`-D 10`, `-t`
 min(c, 12), the framed body, the gRPC headers); on Windows ghz as `win()` in request 15
 (`--connections c -c c*m -z 10s --duration-stop=ignore --cpus 12`, process affinity `0x3FFC`).
-Around every window, the per-process CPU shares (`labrec.process_shares`), one JSON line per window
-with its file name, in `shares.jsonl`. Section 3 reports the server's share per window.
+Around every window, the per-process CPU shares (`labrec.process_shares`), in `shares.jsonl`, one
+line per window in the format of request 15's `shares.jsonl` (`lab/laptop/win/p5/e2e_win_run.py`),
+with these keys on both OSes: `file`, `arm`, `payload`, `c`, `m`, `k` (a string: `warmup`, `1` to
+`4`), `rep` (an integer), `rerun` (true for a rerun), `rc` (the generator's exit status), and
+`around` (start to end) and `mid` (from 20% to 80% of the window), each a map from process name
+(`tep_server`, and `h2load` or `ghz`) to percent of one CPU. Section 3 reports the server's `mid`
+share per window. `peak.jsonl`, one line per server run: `arm`, `payload`, `rep`, `rerun`,
+`field` (`VmHWM` or `PeakWorkingSetSize`) and `kib` (KiB: `VmHWM` as `/proc` gives it;
+`PeakWorkingSetSize` in bytes divided by 1024).
 
 Validity, per server run, as the pilots check it (requests 14 and 15): every window file reports
 0 failed, 0 errored, 0 timeout and only 2xx status codes (h2load), or `[OK]` only and no
 `Error distribution:` (ghz); the server log's last line says `failed 0`, and its `calls ok` lies
 between the sum S of the generator's counts over that run's windows (the warm-up included) and S
 plus the sum of 2 c m over those windows. A server run that fails a check is void. After row 80, each void run (rep, payload,
-arm) runs once more, its files named `-r<rep>x-`. A run void twice makes the cells it touches
-descriptive (section 3); the job goes on.
+arm) runs once more; a rerun writes `r<rep>x` wherever the first run writes `r<rep>`
+(`h2load-R-small-c1-m1-r3x-2.txt`, `latency-R-small-r3x-2.tsv`, `server-R-small-r3x.log`). A run
+void twice makes the cells it touches descriptive (section 3); the job goes on. `validate.txt`
+names each void run as `void <arm> <payload> r<rep>` (or `r<rep>x`), one per line.
 
 Linux only, after the replicates and any reruns: the ghz cross-check (Alex's decision 4 of
 2026-10-23). Medium payload at c12 m128, arms R then P, one server run each: a 10 s warm-up, then 4
