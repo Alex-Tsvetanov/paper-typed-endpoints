@@ -52,7 +52,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Decoding: up to 16 fields compare inline, larger messages through field-number tables. Repeated
   fields reserve for elements that arrive together, else grow geometrically (`test_growth`). Encoding
   writes back to front, sizing each message once (A35: sizing Item again was 7.4% of R's medium
-  cycles). R's many compiles lose to P from 1024 fields (Laptop request 13).
+  cycles). R's many compiles lose to P from 512 fields (Release flags; Laptop requests 20, 21).
 - Heap allocations per call (`test_allocs`, a count, identical requests): small 0 for every arm;
   medium S 0, P 32 (arena strings keep heap buffers), Q 0 (protobuf's cleared repeated fields
   keep their elements), R 93, 62 (growth fix), 27 (reuse), 0 (keep-storage types, Alex; A40 on the
@@ -144,13 +144,13 @@ queue; design, scope and pushes still go to Alex.
     42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
 16. D5 records (`sanitizer-records.md`). Dry run 1 2026-10-31 (A45 q2 at 701fe83, 57339cf8...9edd): clang ASan, TSan red (19).
     Dry run 2 2026-11-01 (A48 q2 at 230315e, af17ce75...e4d0): all five green, four-target inputs with lists, gate pass.
-17. Done 2026-11-01 (A46 at 1b93a97, a6a2bde7...ebca). Pilot. 111 builds valid, 3,885 s. All 18 Windows cells separated,
-    as on Linux: wide 0.313 to 0.900; many 16 to 512 0.332 to 0.969, 1024 to 4096 1.129 to 1.438. 10 replicates: 3.4 h.
-18. Done 2026-10-31 (A45 q1 at 1b93a97, e15c8abc...bb3c). Pilot. 60 builds valid, 559 s. All 10 cells R faster,
-    separated: wide 0.331 to 0.764, many 0.372 to 0.954 (many 512 closest). 10 Linux replicates of 18 cells: 3.2 h.
+17. and 18. Done (A46 W, a6a2bde7...ebca; A45 q1 L, e15c8abc...bb3c; at 1b93a97). Without `-DNDEBUG`, so they fix
+    no direction (superseded by 20 and 21). All cells separated; many 512 was R faster then (0.954 L, 0.969 W).
 19. Done 2026-11-01 (A48 q1, c8881c94...89e8). Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`, 67aad2ef...4007):
     manifest check clean, glibc 2.44, MSan prefixes untouched; the clang ASan, TSan presets link it.
-20. and 21. Compile pilots with the Release flags (`compile-pilot-release.md`): the 111 builds of 13 with 18 on L, of 17 on W.
+20. and 21. Done 2026-11-01 (A50 at 9a3dc92, tools a24f257; L 4fd1df21...51bd, W 7e18a113...da37). Release flags. 222
+    builds valid, gates pass, self-test ok. All 36 cells separated: wide R faster (L 0.314 to 0.844, W 0.322 to 0.835); many
+    R faster 16 to 256, slower 512 to 4096 (512 flipped: 1.015 L, 1.014 W). 3,523 s, 3,839 s; 10 replicates L 3.3 h, W 3.6 h.
 
 ## Lab requests
 

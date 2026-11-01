@@ -57,11 +57,13 @@ Hypotheses. One contrast per cell and OS: R against P on the primary measure.
   separated (`bench/pilot/directions.py`, whole builds). Any other cell is descriptive. A cell
   whose separated direction contradicts C1 or C2 carries the pilot's direction, and the
   contradiction is reported.
-- Seen in the earlier pilots without `-DNDEBUG` (requests 13 and 18 on Linux, 17 on Windows; 3
-  builds per generator; they fix no direction): on both OSes all 18 cells separated, wide R faster
-  (Linux 0.302 to 0.915, Windows 0.313 to 0.900), many R faster from 16 to 512 fields (the smallest
-  margin at 512: Linux 0.954, Windows 0.969) and R slower from 1024 (Linux 1.128 to 1.449, Windows
-  1.129 to 1.438). Open: section 7, items 1 and 2.
+- Seen in the Release-flag pilots (request 20 on Linux, 21 on Windows; 3 builds per generator;
+  median R/P): on both OSes all 18 cells separated. Wide: R faster at every size (Linux 0.314 to
+  0.844, Windows 0.322 to 0.835). Many: R faster from 16 to 256 fields (Linux 0.332 to 0.804,
+  Windows 0.338 to 0.804), R slower from 512 (Linux 1.015 to 1.563, Windows 1.014 to 1.554). Many
+  512 has the smallest margin (its closest R and P builds 1.1% apart on Linux, 0.7% on Windows);
+  the earlier pilots without `-DNDEBUG` (requests 13, 17 and 18) had it R faster (0.954, 0.969).
+  Values: section 7, items 1 and 2.
 
 Design (D9). Ten build pairs per cell and OS; a pair is one R and one P build of the cell. Within
 each replicate the 18 cells run in a seeded random order and the two builds of a pair in a seeded

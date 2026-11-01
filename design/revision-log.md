@@ -424,3 +424,34 @@ and for R builds with different lists, and 1 when one list lacked `wire.hpp`. On
 generated files have no CRLF, every phase read back its pinned CPU, and the self-test passed its
 three checks. `make_prerequisites` reads `\ `, `\#`, `$$` and a continuation line back. A fresh
 `linux-gcc1620-e2e` build passed 24 of 24 tests, `allocs` the declared skip.
+
+## 2026-11-01. Compile pilots with the Release flags (Laptop requests 20 and 21, A50)
+
+A50 ran both at 9a3dc92 with lab tools a24f257. Linux (archive sha256 4fd1df21...51bd): 111
+builds, block 1 in request 13's order and block 2 in request 18's, every one built and checked,
+every check of the request passed, 3,523 s. Windows (7e18a113...da37): the self-test passed its
+three checks, then the same 111 builds; all 330 phase records read back affinity `0x4000`, none
+timed out, every check passed, 3,839 s. On both OSes every built line has `deps_exit` 0 and no
+`deps_error`, every R line lists the five `include/tep/` files and every P line none, and the gate
+against both GCC lists of A48's dry run passed (R covered 57, 285 gated entries; P 54). The
+`-ftime-report` logs show `-DNDEBUG` on the compile line.
+
+`bench/pilot/directions.py` on each OS's builds alone: all 36 cells separated. Linux, wide, R
+faster, 16 to 4096 fields: 0.314, 0.343, 0.409, 0.505, 0.628, 0.741, 0.837, 0.844, 0.778; many, R
+faster from 16 to 256: 0.332, 0.383, 0.490, 0.596, 0.804; R slower from 512: 1.015, 1.217, 1.391,
+1.563. Windows, wide: 0.322, 0.350, 0.413, 0.502, 0.629, 0.741, 0.835, 0.812, 0.725; many: 0.338,
+0.387, 0.489, 0.591, 0.804; then 1.014, 1.200, 1.379, 1.554.
+
+Many 512 changed side: R faster without `-DNDEBUG` (0.954 Linux, 0.969 Windows), R slower now,
+with the smallest margin of any cell. Linux R 18.75 s against P 18.47 s (medians; ranges 18.69 to
+18.75 and 18.44 to 18.49); Windows 20.10 s against 19.82 s (19.99 to 20.15 and 19.72 to 19.85). By
+section 2's rule it carries the pilot's direction, R slower. It lies outside C2 (from 1024
+fields), so nothing is contradicted, and no rule is changed for it. Against the pilots without
+`-DNDEBUG`, on both OSes, P's median builds are 3% to 10% faster in every many cell, up to 4%
+faster in wide 16 to 256 and 4096, and 2% to 8% slower in wide 512 to 2048; R's are 0% to 3% faster
+(descriptive; the cause is not studied).
+
+Peak memory of R many 4096: 4,053 MiB resident on Linux, 4,401 MiB committed on Windows (medians
+of 3). Summed pilot medians put ten replicates of the 18 cells at 3.1 h of builds on Linux and
+3.35 h on Windows; with each job's own overhead (5%, 6%), about 3.3 h and 3.6 h, against the 3.2 h
+and 3.4 h stated before. No defect was found, so `CODE_FREEZE` stays 9a3dc92.
