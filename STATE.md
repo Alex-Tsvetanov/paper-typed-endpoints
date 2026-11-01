@@ -81,7 +81,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - Results (pass or fail only), with interop: `linux-gcc1620-{e2e,e2e-release}` 25 of 25,
   `linux-gcc1620-e2e-tsan` 24 (`allocs` skipped under both sanitizers), `mingw-gcc1620-e2e-release`
   24 of 24, `linux-clang-{asan,tsan}` 8 (`reflection_layer` skipped), `fuzz_decode` 300,000
-  mutations under ASan+UBSan; `msvc-e2e-asan` 9 of 9 at 60eff0e (transport only).
+  mutations under ASan+UBSan; `msvc-e2e-asan` 9, `reflection_layer` skipped, at 60eff0e (transport only).
 - Tests: golden wire vectors (`tests/golden/README.md`) from protoc 3.21.12, regenerated with the
   pinned protoc 36.2 on 2026-10-31: identical. The encoder matches them byte for byte.
 - Sanitized server under h2load (count mode, every arm and body): ASan one worker, TSan two, 0 failed,
@@ -112,7 +112,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11). `hypotheses.md` FROZEN 2026-11-01 (704061a); m 36 and 7.
 - [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
 - [x] Request 16, L (A52, 2026-11-01): five records green at 9a3dc92; GCC lists 25 entries, all first-party files match the commit; gate pass. The W record failed to start (a chain bug), rerun as A54.
-- [ ] Next: A54 (W record). No campaign before it is green; then 23, 25 on W, 22, 24, 26 on L; analysis of their archives.
+- [ ] Next: W record rerun (A54 red on the script's "no skips" rule, revision log). No campaign before it is green; then 25's build, 23, 25 on W, 22, 24, 26 on L.
 
 ## Laptop requests
 

@@ -497,3 +497,18 @@ latency summary (per replicate, then the median over replicates), the Windows me
 1e6 / mean requests per second, the payload order seeded with the arm order, and the bootstrap
 seeds from sha256 of labels naming each cell. The campaign archives are opened only after this
 commit; any later change to `analysis/` is a revision-log entry with its reason.
+
+## 2026-11-01. Request 16's Windows record red on its script's test rule; rerun at the same commit
+
+A52's five Linux records were green at 9a3dc92 and are filed (lab 811e13f); every first-party file in
+their lists matches the commit. The Windows record (A54, `msvc-e2e-asan` on the laptop's Windows,
+MSVC 19.51.36248) came back red with every step at exit 0: 9 tests, 0 failed, `reflection_layer`
+skipped, 0 sanitizer reports, and its 8 listed files equal to the commit's. The lab script
+required 9 tests with no skip. The request's own rule, written before the run, is "every test
+passes or is a declared skip", and the reflection layer on Windows is a declared gap
+(`bench/coverage.json`): `tests/CMakeLists.txt` registers `reflection_layer` as a skip (exit 77)
+on every compiler without P2996, unchanged since 60eff0e, so the desktop's run at 60eff0e skipped it
+too. The request's table row said "9 of 9", which read as no skip; it now names the skip. The script
+was corrected to require exactly that skip list (`["reflection_layer"]`; any other skip, or none,
+stays red), and the record is made again under a new job id at 9a3dc92. `CODE_FREEZE` does not
+move. A54's archive (sha256 87f4540c...) keeps the red record; it is not filed.

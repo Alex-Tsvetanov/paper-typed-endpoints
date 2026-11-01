@@ -46,7 +46,7 @@ included. Green: every test passes or is a declared skip, and 0 reports.
 | L clang ASan+UBSan | `linux-clang-asan` | 8 tests, all pass but `reflection_layer`, skipped (clang has no P2996) | none |
 | L clang TSan | `linux-clang-tsan` | 8 tests, as above | none |
 | L clang MSan | `linux-clang-msan` | not run: the desktop has no instrumented libc++ | none |
-| W MSVC ASan | `msvc-e2e-asan` (transport and arm S only) | 9 of 9 at 60eff0e (desktop MSVC) | none |
+| W MSVC ASan | `msvc-e2e-asan` (transport and arm S only) | 9 tests, all pass but `reflection_layer`, skipped (MSVC has no P2996; the declared gap in `bench/coverage.json`), at 60eff0e (desktop MSVC; amended 2026-11-01, revision log) | none |
 
 The load runs the measured code paths under the sanitizer: the record's `tep_server` for each arm
 S, R, P and Q, one at a time, driven by `~/opt/h2load-1.70.0/bin/h2load` with each body
