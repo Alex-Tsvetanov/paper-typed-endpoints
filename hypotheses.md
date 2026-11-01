@@ -1,13 +1,13 @@
 # Hypotheses
 
-Status: DRAFT of 2026-10-31, not frozen. Written new from `design/freeze-proposal.md` and Alex's
-answers of 2026-10-31 to its questions Q1 to Q4 (relayed by the coordinator; quoted in section 6).
-It is frozen by a commit that changes this status paragraph and fills the values of section 7 by
-the rules written here, and nothing else, once three pilots are back: the Windows end-to-end pilot
-(Laptop request 15) and the compile pilots with the Release flags on Linux (request 20) and on
-Windows (request 21). It is frozen before the first timed window of either campaign. From
-the freezing commit on, the text above the revision log is never edited; every change goes into
-the revision log at the end. Nothing in this file is a result.
+Status: FROZEN on 2026-11-01 (drafted 2026-10-31). Written new from `design/freeze-proposal.md` and
+Alex's answers of 2026-10-31 to its questions Q1 to Q4 (relayed by the coordinator; quoted in
+section 6). It was frozen by the commit that changed this status paragraph and filled the values of
+section 7 by the rules written here, and nothing else, once three pilots were back: the Windows
+end-to-end pilot (Laptop request 15) and the compile pilots with the Release flags on Linux
+(request 20) and on Windows (request 21). It is frozen before the first timed window of either
+campaign. From the freezing commit on, the text above the revision log is never edited; every
+change goes into the revision log at the end. Nothing in this file is a result.
 
 Words:
 - R is the reflection generator and its arm (`tep`, C++26 static reflection). P is the `protoc`
@@ -184,11 +184,23 @@ Every timed build is the optimized Release build; sanitizer and Debug builds are
 
 ## 7. Values filled at the freeze (by the rules above, from the pilots named)
 
-1. Linux compile cells, all 18: direction or descriptive, from Laptop request 20.
-2. Windows compile cells, all 18: direction or descriptive, from Laptop request 21.
-3. Windows end-to-end contrasts E1 and E2: hypothesis or descriptive, from Laptop request 15.
-4. The frozen commit of the code (`CODE_FREEZE`), named in the freezing commit's message; the D5
-   records are made at it.
+1. Linux compile cells, all 18 directional, from Laptop request 20 (A50; every cell separated):
+   - wide 16, 32, 64, 128, 256, 512, 1024, 2048, 4096: R faster (C1).
+   - many 16, 32, 64, 128, 256: R faster.
+   - many 512: R slower (outside C2's range; R faster in the pilots without `-DNDEBUG`).
+   - many 1024, 2048: R slower (C2). many 4096: R slower (C2; the secondary curve).
+2. Windows compile cells, all 18 directional, from Laptop request 21 (A50; every cell separated):
+   the same direction as item 1 in every cell.
+   Compile family: m = 36 (18 per OS); 2^-10 = 0.00098 < 0.05/36 = 0.00139.
+3. Windows end-to-end contrasts, from Laptop request 15 (A43b; `bench/pilot/pilot_e2e_windows.py`):
+   - E1, all four (small and medium; R against P and against Q; c12 m128): descriptive. The
+     server's CPU share was below 0.95 (24% to 62% of one CPU), and the windows were not separated.
+   - E2, medium at c1 m1, R against P: hypothesis (R serves more requests per second than P).
+   - E2, medium at c1 m1, R against Q: descriptive (the windows overlap).
+   End-to-end family: m = 7 (the 6 Linux contrasts of E1 and E2, section 3, and Windows E2 R
+   against P); 2^-10 = 0.00098 < 0.05/7 = 0.0071.
+4. `CODE_FREEZE` = 9a3dc9249809f08a08f84f06f708a362b755392d (9a3dc92), named in the freezing
+   commit's message; the D5 records are made at it.
 
 ## Revision log
 
