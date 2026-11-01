@@ -4,8 +4,8 @@ Status: DRAFT of 2026-10-31, not frozen. Written new from `design/freeze-proposa
 answers of 2026-10-31 to its questions Q1 to Q4 (relayed by the coordinator; quoted in section 6).
 It is frozen by a commit that changes this status paragraph and fills the values of section 7 by
 the rules written here, and nothing else, once three pilots are back: the Windows end-to-end pilot
-(Laptop request 15), the Windows compile pilot (request 17) and the Linux compile pilot of the
-sizes 32 to 512 (request 18). It is frozen before the first timed window of either campaign. From
+(Laptop request 15) and the compile pilots with the Release flags on Linux (request 20) and on
+Windows (request 21). It is frozen before the first timed window of either campaign. From
 the freezing commit on, the text above the revision log is never edited; every change goes into
 the revision log at the end. Nothing in this file is a result.
 
@@ -16,8 +16,10 @@ Words:
   reference lower bound, never compared.
 - Linux is the laptop's Arch; Windows is the laptop's Windows. They run on the same laptop (AMD
   Ryzen 7 5800H). No claim compares them.
-- A pilot is a laptop run named in STATE.md (Laptop requests 13, 14, 15, 17 and 18). Pilots fix
-  directions by the rules below and decide nothing else; no pilot number is a result.
+- A pilot is a laptop run named in STATE.md: Laptop requests 14 and 15 end to end, 20 and 21 for
+  compiling. Pilots fix directions by the rules below and decide nothing else; no pilot number is
+  a result. The earlier compile pilots (requests 13, 17 and 18) compiled without `-DNDEBUG`, so
+  they were not Release builds, and they fix no direction.
 - Separated: in a cell's pilot builds or windows, every R value is on one side of every value of
   the arm it is compared with.
 - Descriptive: a cell reported with its ratio and interval, with no hypothesis and no test.
@@ -41,25 +43,25 @@ defaults; that cell is labelled as the secondary curve wherever it appears.
 Measure. Primary: the whole build's wall time, the sum of the phases `compile_curve.py` records,
 from `.proto` to the linked program (R: compile, link; P: protoc, compile_pb, compile_user, link).
 Writing the schema and the user program before the first phase, and the program's check after the
-last, are not timed. Secondary, descriptive: each phase's wall time; peak memory of the largest
+last, are not timed; a phase's time runs from starting its process to its exit. Every build
+compiles with the presets' Release flags (`-O2 -DNDEBUG`), from generated files with LF line ends
+on both OSes. Secondary, descriptive: each phase's wall time; peak memory of the largest
 process of any phase, which is the peak resident set on Linux (`maxrss_kib`) and the peak committed
 memory on Windows (`peak_commit_kib`). The two memory measures are never called by one name.
 
 Hypotheses. One contrast per cell and OS: R against P on the primary measure.
 - C1 (wide). R builds faster than P.
 - C2 (many, from 1024 fields; Alex's Q3, section 6). R builds slower than P.
-- Rule for every cell, C1 and C2 included: a cell carries the direction its OS's pilot shows only
-  if the pilot built it and its builds are separated (`bench/pilot/directions.py`, whole builds,
-  pilots pooled). Any other cell is descriptive. A cell whose separated direction contradicts C1 or
-  C2 carries the pilot's direction, and the contradiction is reported.
-- Known on Linux from Laptop request 13 (A40, 3 builds per generator): wide 16, 1024, 2048, 4096 R
-  faster, separated (whole-build ratios 0.302, 0.893, 0.915, 0.759); many 16 R faster (0.319);
-  many 1024, 2048, 4096 R slower (1.128, 1.289, 1.449). Known on Linux from Laptop request 18 (A45,
-  3 builds per generator): every cell of 32 to 512 fields R faster, separated (wide 0.331 to 0.764;
-  many 0.372 to 0.954, the smallest margin at many 512). Known on Windows from Laptop request 17
-  (A46, 3 builds per generator): all 18 cells separated, each in the direction Linux shows (wide
-  0.313 to 0.900; many 16 to 512 0.332 to 0.969, the smallest margin at many 512; many 1024, 2048,
-  4096 1.129, 1.290, 1.438). Open: section 7, items 1 and 2.
+- Rule for every cell, C1 and C2 included: a cell carries the direction its OS's Release-flag
+  pilot shows (request 20 on Linux, 21 on Windows) only if that pilot built it and its builds are
+  separated (`bench/pilot/directions.py`, whole builds). Any other cell is descriptive. A cell
+  whose separated direction contradicts C1 or C2 carries the pilot's direction, and the
+  contradiction is reported.
+- Seen in the earlier pilots without `-DNDEBUG` (requests 13 and 18 on Linux, 17 on Windows; 3
+  builds per generator; they fix no direction): on both OSes all 18 cells separated, wide R faster
+  (Linux 0.302 to 0.915, Windows 0.313 to 0.900), many R faster from 16 to 512 fields (the smallest
+  margin at 512: Linux 0.954, Windows 0.969) and R slower from 1024 (Linux 1.128 to 1.449, Windows
+  1.129 to 1.438). Open: section 7, items 1 and 2.
 
 Design (D9). Ten build pairs per cell and OS; a pair is one R and one P build of the cell. Within
 each replicate the 18 cells run in a seeded random order and the two builds of a pair in a seeded
@@ -180,10 +182,8 @@ Every timed build is the optimized Release build; sanitizer and Debug builds are
 
 ## 7. Values filled at the freeze (by the rules above, from the pilots named)
 
-1. Linux compile cells at 32, 64, 128, 256 and 512 fields, both shapes: direction or descriptive,
-   from Laptop request 18.
-2. Windows compile cells, all 18: direction or descriptive, from Laptop request 17 (its sizes 16,
-   1024, 2048, 4096 and 32 to 512).
+1. Linux compile cells, all 18: direction or descriptive, from Laptop request 20.
+2. Windows compile cells, all 18: direction or descriptive, from Laptop request 21.
 3. Windows end-to-end contrasts E1 and E2: hypothesis or descriptive, from Laptop request 15.
 4. The frozen commit of the code (`CODE_FREEZE`), named in the freezing commit's message; the D5
    records are made at it.

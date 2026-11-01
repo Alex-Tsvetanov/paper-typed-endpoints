@@ -359,3 +359,68 @@ three. The compile-curve gate at the laptop's paths: R wide 8 recorded the five 
 none, and `check_compile_inputs.py` against the GCC ASan list printed `R: covered 1` (5 entries),
 `P: covered 1` (0) and `pass`. Nothing blocks the freeze on the records' side; the records proper
 run at the frozen commit.
+
+## 2026-11-01. Sixth fresh review (Opus, 88e5b4c..ce2413c)
+
+A fresh Opus review of the code changed since the fifth review (the measured `reflect.hpp` and
+`h2_server.cpp` changes, the Windows port of `compile_curve.py`, the D5 gate, the presets, the new
+tests and the pilot scripts): no CRITICAL or HIGH; 2 MEDIUM, 14 LOW, and one note outside the diff.
+
+Outside the diff (N1): `compile_curve.py` compiled with `-std=c++26 -O2` and no `-DNDEBUG`, while
+the presets' Release flags are `-O2 -DNDEBUG`. Alex's standing rule (2026-10-09): every timed
+build is the optimized Release build, NDEBUG, pilots included. So no compile pilot so far was a
+Release build: every one built tep's `assert`s and protobuf's debug checks, and compiled protoc's
+code with other flags than the Release libprotobuf it links (both prefixes are built with
+`-O2 -DNDEBUG`). Fixed: both generators compile with `-O2 -DNDEBUG`. The user programs check with
+explicit returns, not `assert`, so the check still means what it did. The end-to-end pilots built
+the release presets (`linux-gcc1620-e2e-release`, `mingw-gcc1620-e2e-release`) and stand. Laptop
+requests 20 (Linux) and 21 (Windows, `bench/requests/compile-pilot-release.md`) build the same
+111 builds as requests 13 with 18, and 17, at the fixing commit; the draft `hypotheses.md` takes
+the compile directions from those two alone, written before they run. The earlier values stay in
+section 2 as seen in pilots that fix no direction.
+
+Fixed:
+- M1. An R build that recorded no gated file passed the gate. Now an R build must list
+  `reflect.hpp` and all R builds the same files, or the check exits 2.
+- M2. The gate merged all lists into one, so a stale list could vouch for a file. Now a file must
+  be in every list given with that sha256, and the lists of both GCC records (ASan+UBSan and TSan)
+  are passed (`sanitizer-records.md`, `coverage.json`). The dry-run script passed the ASan list
+  alone; the records proper pass both.
+- L2. A failing dependency step keeps its error output (`deps_error`).
+- L3. `make_prerequisites` reads GCC's `\#` and `$$` escapes back.
+- L4. A failed `TerminateJobObject` falls back to killing the child (closing the job ends the
+  rest); the self-test now also checks that no grandchild is left running and that the timeout
+  ended the tree within 15 s.
+- L6. Each phase's time includes starting its process, so P's four phases carry four process
+  starts against R's two: by the reviewer, milliseconds per phase, far below the smallest pilot
+  margin (many 512). Section 2 of the draft now says so.
+- L7. On Windows the schema and user program were written with CRLF line ends, so the two OSes
+  compiled different bytes (R `#embed`s the schema). Both are now written with LF everywhere.
+- L8. The comment in `respond()` claimed more than the code guards; corrected (comment only).
+- L9, L10. `pilot_e2e_windows.py` now requires the CPU share for every arm and payload before any
+  E1 contrast, and leaves windows with a status other than OK out. On A43b's archive every verdict
+  is unchanged (E1 descriptive, E2 R vs P hypothesis, E2 R vs Q descriptive; 0 bad windows).
+- L11. `directions.py` leaves out Windows builds that section 2 does not count (a phase not on CPU
+  14, or timed out). A46 had none.
+- L12. `test_growth.cpp`'s header comment named only vectors and short strings; corrected.
+Accepted:
+- L1. The inputs are hashed after the build. Nothing edits `include/tep/` during a laptop job; the
+  checkout is the frozen commit.
+- L5. A phase's `affinity` is the job's limit read back, not the processes' mask. The self-test,
+  first in every Windows compile job, checks the mask a grandchild actually runs with.
+- L13. The clang presets add the plain libc++ with `-isystem` and no `-nostdinc++`. The laptop has
+  no system libc++, decision 7 forbids installing one during P4's Arch blocks, and the MSan preset
+  works the same way. To revisit if a system libc++ appears.
+- L14. `test_interop` writes its own bodies; they are byte for byte those `write_bodies` writes
+  (the reviewer checked).
+- N2. The end-to-end pilots (A40 at db1f31c, A43b at 40e9211) ran before 701fe83, which added the
+  try block in `respond()` (no cost when nothing is thrown) and `reflect.hpp` changes off R's hot
+  path, by the reviewer. No end-to-end pilot is repeated.
+Checked without timing (`--no-time`). In the dev image and with MinGW on the desktop, R and P at
+wide and many 16 and 1024, and R many 4096 with the raised limit, built with `-O2 -DNDEBUG` and
+passed their check; every R build listed the five headers and every P build none, and the gate
+passed against both GCC lists of A48's dry run. The gate exited 2 for an R build with an empty list
+and for R builds with different lists, and 1 when one list lacked `wire.hpp`. On Windows the
+generated files have no CRLF, every phase read back its pinned CPU, and the self-test passed its
+three checks. `make_prerequisites` reads `\ `, `\#`, `$$` and a continuation line back. A fresh
+`linux-gcc1620-e2e` build passed 24 of 24 tests, `allocs` the declared skip.

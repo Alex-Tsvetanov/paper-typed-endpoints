@@ -37,7 +37,8 @@ with open(os.path.join(OUT, "shares-summary.tsv"), encoding="utf-8") as f:
 
 
 def rates(arm, payload, c, m):
-    return [ghz(arm, payload, c, m, k)[0] for k in RUNS[arm]]
+    """Requests per second of the arm's valid windows: a window with any status other than OK is left out."""
+    return [rps for rps, _, statuses in (ghz(arm, payload, c, m, k) for k in RUNS[arm]) if set(statuses) == {"OK"}]
 
 
 def sep(x, y, nx, ny):
@@ -69,9 +70,10 @@ for p in PAYLOADS:
         print(f"{p:6} {a}: " + "  ".join(f"{d[50]}/{d[99]}" for d in lat))
 print()
 print("hypotheses.md section 3 rule on this pilot")
+# E1 needs the server at a CPU share of at least 0.95 at c12 m128 for every arm and payload.
+saturated = all(shares[(a, p, 12, 128, str(k))][0] >= 95.0 for p in PAYLOADS for a in ("R", "Q", "P") for k in RUNS[a])
 for p, c, m, name in (("small", 12, 128, "E1"), ("medium", 12, 128, "E1"), ("medium", 1, 1, "E2")):
     r, q, pp = (rates(a, p, c, m) for a in ("R", "Q", "P"))
-    saturated = all(shares[(a, p, c, m, str(k))][0] >= 95.0 for a in ("R", "Q", "P") for k in RUNS[a])
     for other, x in (("P", pp), ("Q", q)):
         separated = min(r) > max(x)
         needs = name == "E1"

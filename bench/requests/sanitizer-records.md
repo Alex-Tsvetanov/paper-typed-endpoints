@@ -80,8 +80,10 @@ cannot hash them. Their gate (Alex, 2026-10-31, "Adopt (Recommended)"): after ea
 flags, and records every listed file under `include/tep/` with its sha256 (`first_party_inputs`,
 each named `tep/include/tep/<file>` and hashed with CRLF read as LF, as `inputs_hash.py` names and
 hashes). A compile-curve number is citable only if, for every build behind it, each such file
-appears with the same sha256 in the list of a green GCC sanitizer record:
-`bench/check_compile_inputs.py --list <record>.inputs.tsv <curve>.jsonl` exits 0. The same holds
+appears with the same sha256 in the lists of both green GCC sanitizer records (ASan+UBSan and
+TSan): `bench/check_compile_inputs.py --list <ASan record>.inputs.tsv --list <TSan
+record>.inputs.tsv <curve>.jsonl` exits 0. An R build must list `reflect.hpp`, and all R builds
+the same files (sixth review, 2026-11-01: an empty or partial list no longer passes). The same holds
 for the Windows compile builds, which MinGW makes without sanitizers: the Linux GCC records cover
 the same first-party files (`coverage.json`, the Windows reflection gap). Generator P's compiles
 include no `include/tep/` file, so its builds record an empty map and pass trivially; an empty map

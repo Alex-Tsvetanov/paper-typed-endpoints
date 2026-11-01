@@ -5,8 +5,8 @@
 // of a repeated field that arrive together take one allocation; elements that arrive in many
 // pieces (packed chunks, or interleaved with another field) grow the vector geometrically, so
 // decoding stays linear in the input; and a reservation made by looking ahead is capped, so a run
-// whose first element fails reserves little. Only vectors of trivially copyable elements and
-// short strings appear, so every allocation counted is a vector's.
+// whose first element fails reserves little. Each test counts the allocations of the messages it
+// builds: vectors, strings beyond the short-string buffer, and boxes.
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>

@@ -171,8 +171,10 @@ public:
             } else if (frame->compressed) {
                 st = status::internal;  // no grpc-encoding is negotiated
             } else {
-                // An arm may throw (protobuf allocates); the exception must not unwind through
-                // nghttp2's C callbacks. Mapped as the reflection endpoint maps it.
+                // An arm may throw (protobuf allocates), and nothing thrown here may unwind through
+                // nghttp2's C callbacks: mapped as the reflection endpoint maps it. The transport's
+                // own allocations in the other callbacks are not guarded; running out of memory
+                // there stops the server.
                 try {
                     st = arm_->call(s.path, frame->payload, s.response);
                 } catch (const std::bad_alloc&) {

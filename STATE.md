@@ -106,14 +106,12 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Fresh reviews 1 to 3 (2026-10-23 to 30; the third 6a0d8c9, verified): every CRITICAL, HIGH and
       MEDIUM fixed. Open LOW: option value types, `1abc` one floating token, no decode allocation cap
       beyond the 4 MiB frame, run-time hash probing with crafted collisions, reserves kept in the file.
-- [x] Fourth fresh review (Opus, 23dfab3..1e4b25d, 2026-10-30): no CRITICAL or HIGH; 4 MEDIUM,
-      7 LOW. Fixed and verified: M3 (multi-worker test), M4 (console handler), L5, L7 to L11
-      (34f65a0, 91dbece). M1 (MinGW emulated TLS biases P on Windows) and M2 (Windows sanitizer
-      record, transport only) answered by Alex (revision log). L6 caveat.
-- [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
-      all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
+- [x] Fresh reviews 4 and 5 (Opus, 23dfab3..88e5b4c, 2026-10-30, 31): no CRITICAL or HIGH; all acted on or
+      answered by Alex (revision log; review 4's M1 MinGW emulated TLS, M2 Windows record transport only).
+- [x] Sixth fresh review (Opus, 88e5b4c..ce2413c, 2026-11-01): no CRITICAL or HIGH; 2 MEDIUM (gate), 14 LOW,
+      fixed or accepted (revision log). Outside it: compile builds lacked `-DNDEBUG`, no compile pilot Release.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
-- [ ] Next: fill `hypotheses.md` section 7 and freeze; then 16 (D5 records) at the frozen commit, then the campaigns.
+- [ ] Next: 20 and 21 at the review-6 commit (CODE_FREEZE); section 7 and the freeze; 16 at CODE_FREEZE; campaigns.
 
 ## Laptop requests
 
@@ -152,6 +150,7 @@ queue; design, scope and pushes still go to Alex.
     separated: wide 0.331 to 0.764, many 0.372 to 0.954 (many 512 closest). 10 Linux replicates of 18 cells: 3.2 h.
 19. Done 2026-11-01 (A48 q1, c8881c94...89e8). Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`, 67aad2ef...4007):
     manifest check clean, glibc 2.44, MSan prefixes untouched; the clang ASan, TSan presets link it.
+20. and 21. Compile pilots with the Release flags (`compile-pilot-release.md`): the 111 builds of 13 with 18 on L, of 17 on W.
 
 ## Lab requests
 

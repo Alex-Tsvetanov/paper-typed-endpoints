@@ -4,7 +4,8 @@ whether every R build is on one side of every P build. Pilots only; nothing here
 
 Usage: python -I directions.py pilot.jsonl [pilot.jsonl ...]
 Builds from all files are pooled per (OS, shape, n, ops_limit of R); time-report, untimed and
-unchecked lines are skipped. The OS is read from the memory field: maxrss_kib on Linux,
+unchecked lines are skipped, and so are Windows builds that are not valid by section 2 (a phase
+not pinned to CPU 14, or timed out). The OS is read from the memory field: maxrss_kib on Linux,
 peak_commit_kib on Windows.
 """
 import json
@@ -13,6 +14,7 @@ import sys
 
 builds: dict[tuple[str, str, int], dict[str, list[float]]] = {}
 limits: dict[tuple[str, str, int], set[int]] = {}
+invalid = 0
 for path in sys.argv[1:]:
     with open(path, encoding="utf-8") as lines:
         for line in lines:
@@ -22,12 +24,16 @@ for path in sys.argv[1:]:
             if not r.get("timed") or r.get("time_report") or not r.get("checked"):
                 continue
             os_name = "windows" if "peak_commit_kib" in r["phases"][0] else "linux"
+            if os_name == "windows" and any(p.get("affinity") != "0x4000" or p.get("timed_out") for p in r["phases"]):
+                invalid += 1  # hypotheses.md section 2: a Windows build counts only on CPU 14, none timed out
+                continue
             cell = (os_name, r["shape"], r["n"])
             seconds = sum(p["wall_ns"] for p in r["phases"]) / 1e9
             builds.setdefault(cell, {}).setdefault(r["gen"], []).append(seconds)
             if r["gen"] == "R":
                 limits.setdefault(cell, set()).add(r["ops_limit"])
 
+print(f"Windows builds left out (affinity not 0x4000, or a phase timed out): {invalid}")
 print("os      shape     n   R/P   builds R,P  direction")
 for cell, by_gen in sorted(builds.items()):
     os_name, shape, n = cell

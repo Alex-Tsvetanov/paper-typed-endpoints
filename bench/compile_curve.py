@@ -9,7 +9,11 @@ Generators:
      with the prebuilt static libprotobuf under --protobuf, its libraries named by pkg-config on
      Linux and by its .pc files, read here, on Windows (which has no pkg-config).
 
-Phases run one at a time. With timing on, each phase records its wall time (monotonic clock) and
+Both generators compile with the Release flags of CMakePresets.json (-O2 -DNDEBUG); the generated
+files are written with LF line ends on both OSes, so both compile the same bytes.
+
+Phases run one at a time. With timing on, each phase records its wall time (monotonic clock, from
+starting its process to its exit, so the process's start is included) and
 the peak memory of its process tree: on Linux the peak resident set size of the largest process
 (wait4, maxrss_kib); on Windows the peak committed memory of the largest process (a job object,
 peak_commit_kib). The two are different measures, compared only within one OS. The schema and the
@@ -20,7 +24,8 @@ D5 gate (Alex, 2026-10-31; bench/requests/sanitizer-records.md): after a build, 
 compile phase's translation unit is listed again with `g++ -MM` and that phase's flags, and every
 listed file under include/tep/ is recorded with its sha256 (first_party_inputs, named and hashed
 as lab/bin/inputs_hash.py --list names and hashes them). bench/check_compile_inputs.py matches
-them against a green GCC sanitizer record's list. P's compiles include no include/tep/ file.
+them against the lists of the green GCC sanitizer records. P's compiles include no include/tep/
+file. If the dependency step fails, its error output is kept (deps_error).
 
 Windows (MinGW-w64 GCC 16.2.0; Alex's Q4 of 2026-10-31): each phase runs in its own job object,
 started suspended, so its whole process tree is in the job. --cpu pins the job to one CPU, as
@@ -54,7 +59,7 @@ import time
 HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parent
 GATED = REPO / "include" / "tep"
-STD = ["-std=c++26", "-O2"]
+STD = ["-std=c++26", "-O2", "-DNDEBUG"]  # the presets' Release flags: every timed build is a Release build
 STATIC_RUNTIME = ["-static-libstdc++", "-static-libgcc"]
 WINDOWS = os.name == "nt"
 EXE = ".exe" if WINDOWS else ""
@@ -97,6 +102,10 @@ if WINDOWS:
     _k32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     _k32.CloseHandle.argtypes = [wintypes.HANDLE]
     _k32.SetErrorMode.argtypes = [wintypes.UINT]
+    _k32.OpenProcess.restype = wintypes.HANDLE
+    _k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    _k32.WaitForSingleObject.restype = wintypes.DWORD
+    _k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
     _ntdll.NtResumeProcess.restype = ctypes.c_long
 
@@ -166,7 +175,8 @@ def run_phase_windows(name: str, cmd: list[str], cwd: pathlib.Path, timed: bool,
             try:
                 proc.wait(timeout)
             except subprocess.TimeoutExpired:
-                _k32.TerminateJobObject(job, 1)
+                if not _k32.TerminateJobObject(job, 1):
+                    proc.kill()  # closing the job below ends whatever else is in it
                 proc.wait()
                 timed_out = True
             end = time.perf_counter_ns()
@@ -253,32 +263,39 @@ def plan(args) -> list[tuple[str, list[str]]]:
 
 
 def make_prerequisites(rule: str) -> list[str]:
-    """The prerequisites of the make rule `g++ -MM` prints: continuation lines joined, "\\ " read
-    as a space. A Windows drive's colon is never followed by a space, so ": " ends the target."""
+    """The prerequisites of the make rule `g++ -MM` prints: continuation lines joined, and the
+    escapes GCC writes ("\\ " for a space, "\\#" for #, "$$" for $) read back. A Windows drive's
+    colon is never followed by a space, so ": " ends the target."""
     body = rule.replace("\\\r\n", " ").replace("\\\n", " ")
-    return [token.replace("\\ ", " ") for token in re.findall(r"(?:\\ |\S)+", body.partition(": ")[2])]
+    return [token.replace("\\ ", " ").replace("\\#", "#").replace("$$", "$")
+            for token in re.findall(r"(?:\\ |\S)+", body.partition(": ")[2])]
 
 
-def first_party_inputs(steps: list[tuple[str, list[str]]], cell: pathlib.Path, env: dict | None) -> tuple[int, dict]:
+def first_party_inputs(steps: list[tuple[str, list[str]]], cell: pathlib.Path,
+                       env: dict | None) -> tuple[int, dict, str]:
     """Untimed, after the build: `g++ -MM` of each compile phase's translation unit with that phase's
     flags, and {"tep/include/tep/<file>": sha256} of the files it lists under include/tep/, the file
-    read with CRLF as LF (as lab/bin/inputs_hash.py hashes). Returns the first nonzero exit, or 0."""
+    read with CRLF as LF (as lab/bin/inputs_hash.py hashes). Returns the first nonzero exit (or 0),
+    the files, and the end of the error output of every failing step."""
     repo = os.path.realpath(REPO)
     gated = os.path.normcase(os.path.realpath(GATED)) + os.sep
-    status, files = 0, {}
+    status, files, errors = 0, {}, ""
     for name, cmd in steps:
         if not name.startswith("compile"):
             continue
         at = cmd.index("-c")
         flags = [arg for arg in cmd[:at] if arg != "-ftime-report"]
-        out = subprocess.run([*flags, "-MM", cmd[at + 1]], cwd=cell, env=env, capture_output=True, text=True)
+        out = subprocess.run([*flags, "-MM", cmd[at + 1]], cwd=cell, env=env, capture_output=True, text=True,
+                             errors="replace")
         status = status or out.returncode
+        if out.returncode != 0:
+            errors += f"{name}: exit {out.returncode}: {out.stderr[-2000:]}"
         for dep in make_prerequisites(out.stdout):
             real = os.path.realpath(cell / dep)
             if os.path.normcase(real).startswith(gated):
                 path = "tep/" + real[len(repo) + 1:].replace(os.sep, "/")
                 files[path] = hashlib.sha256(pathlib.Path(real).read_bytes().replace(b"\r\n", b"\n")).hexdigest()
-    return status, dict(sorted(files.items()))
+    return status, dict(sorted(files.items())), errors
 
 
 def check(cell: pathlib.Path, env: dict | None, timeout: float | None) -> bool:
@@ -301,6 +318,7 @@ k32.GetProcessAffinityMask.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_
 mask, system = ctypes.c_size_t(), ctypes.c_size_t()
 k32.GetProcessAffinityMask(k32.GetCurrentProcess(), ctypes.byref(mask), ctypes.byref(system))
 print(f"grandchild affinity {mask.value:#x}", flush=True)
+print(f"grandchild pid {k32.GetCurrentProcessId()}", flush=True)
 block = bytearray(256 << 20)
 if sys.argv[1:] == ["sleep"]:
     time.sleep(60)
@@ -309,21 +327,40 @@ SELF_TEST_CHILD = ("import subprocess, sys; "
                    f"sys.exit(subprocess.call([sys.executable, '-I', '-c', {SELF_TEST_GRANDCHILD!r}] + sys.argv[1:]))")
 
 
+def _alive(pid: int) -> bool:
+    """Whether the process is still running 5 s from now (termination completes asynchronously)."""
+    handle = _k32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if not handle:
+        return False  # no such process
+    try:
+        return _k32.WaitForSingleObject(handle, 5000) != 0  # WAIT_OBJECT_0: it has exited
+    finally:
+        _k32.CloseHandle(handle)
+
+
+SELF_TEST_TIMEOUT_S, SELF_TEST_BOUND_S = 5, 15
+
+
 def self_test(cpu: int | None) -> int:
     """Checks, untimed, that a phase's job holds its grandchildren (their committed memory counts and
-    the CPU pin reaches them) and that --timeout ends the tree. Prints ok or FAIL per check."""
+    the CPU pin reaches them) and that --timeout ends the whole tree within a bound (no grandchild
+    left running). Prints ok or FAIL per check."""
     with tempfile.TemporaryDirectory() as tmp:
         cwd = pathlib.Path(tmp)
         log = cwd / "self-test.log"
         env = dict(os.environ)
         tree = run_phase_windows("tree", [sys.executable, "-I", "-c", SELF_TEST_CHILD], cwd, True, log, cpu, 120, env)
+        begin = time.monotonic()
         stopped = run_phase_windows("timeout", [sys.executable, "-I", "-c", SELF_TEST_CHILD, "sleep"], cwd, False, log,
-                                    cpu, 5, env)
+                                    cpu, SELF_TEST_TIMEOUT_S, env)
+        within = time.monotonic() - begin < SELF_TEST_BOUND_S
         text = log.read_text(encoding="utf-8", errors="replace")
+    pids = [int(pid) for pid in re.findall(r"grandchild pid (\d+)", text)]
     checks = {
         "grandchild memory counted": tree["exit"] == 0 and tree["peak_commit_kib"] >= 256 * 1024,
         "grandchild pinned": cpu is None or f"grandchild affinity {1 << cpu:#x}" in text,
-        "timeout ends the tree": stopped.get("timed_out", False),
+        "timeout ends the tree": (stopped.get("timed_out", False) and within and len(pids) == 2
+                                  and not any(_alive(pid) for pid in pids)),
     }
     for what, ok in checks.items():
         print(f"self-test: {what}: {'ok' if ok else 'FAIL'}")
@@ -374,9 +411,9 @@ def main(argv: list[str]) -> int:
     if cell.exists():
         shutil.rmtree(cell)
     cell.mkdir(parents=True)
-    (cell / "schema.proto").write_text(gen.schema(args.shape, args.n), encoding="utf-8")
+    (cell / "schema.proto").write_text(gen.schema(args.shape, args.n), encoding="utf-8", newline="\n")
     user = gen.reflect_user(args.shape, args.n, "schema.proto") if args.gen == "R" else gen.protoc_user(args.shape, args.n)
-    (cell / "user.cpp").write_text(user, encoding="utf-8")
+    (cell / "user.cpp").write_text(user, encoding="utf-8", newline="\n")
 
     env = None
     if WINDOWS:
@@ -398,7 +435,9 @@ def main(argv: list[str]) -> int:
         "built": built, "checked": built and check(cell, env, args.timeout),
     }
     if built:
-        result["deps_exit"], result["first_party_inputs"] = first_party_inputs(steps, cell, env)
+        result["deps_exit"], result["first_party_inputs"], errors = first_party_inputs(steps, cell, env)
+        if errors:
+            result["deps_error"] = errors
     with open(args.out, "a", encoding="utf-8") as out:
         out.write(json.dumps(result) + "\n")
     if args.time_report or not result["checked"]:
