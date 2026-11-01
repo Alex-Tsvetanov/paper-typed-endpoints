@@ -151,6 +151,7 @@ queue; design, scope and pushes still go to Alex.
 20. and 21. Done 2026-11-01 (A50 at 9a3dc92, tools a24f257; L 4fd1df21...51bd, W 7e18a113...da37). Release flags. 222
     builds valid, gates pass, self-test ok. All 36 cells separated: wide R faster (L 0.314 to 0.844, W 0.322 to 0.835); many
     R faster 16 to 256, slower 512 to 4096 (512 flipped: 1.015 L, 1.014 W). 3,523 s, 3,839 s; 10 replicates L 3.3 h, W 3.6 h.
+22. to 25. Campaigns at CODE_FREEZE, after 16 is green: `compile-campaign.md` (22 L, 23 W), `e2e-campaign.md` (24 L, 25 W).
 
 ## Lab requests
 
