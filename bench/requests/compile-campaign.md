@@ -58,7 +58,8 @@ its rows give, into `retry.jsonl`. A pair voided twice makes its cell descriptiv
   `include/tep/` files (`fixed_string.hpp`, `grpc.hpp`, `reflect.hpp`, `schema.hpp`, `wire.hpp`);
   every P line lists none. On Windows every phase has `wall_ns` and `peak_commit_kib`.
 - `retry.jsonl` holds exactly the retried pairs, two lines each, or does not exist if none.
-- `validate.txt` lists the voided pairs, the retried pairs, and every cell made descriptive.
+- `validate.txt` lists the voided pairs, the retried pairs, and every cell made descriptive, one
+  per line: `void <shape> <n> r<rep>`, `retried <shape> <n> r<rep>`, `descriptive <shape> <n>`.
 - The gate: `check_compile_inputs.py --list <ASan list> --list <TSan list> campaign.jsonl
   [retry.jsonl]` exits 0 (`gate.txt`).
 
