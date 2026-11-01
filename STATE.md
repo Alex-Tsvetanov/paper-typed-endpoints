@@ -103,16 +103,16 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 ## Status
 
 - [x] Repository, design note draft, compiler findings; tests pass on Linux, MSVC (portable), MinGW.
-- [x] Fresh reviews 1 to 3 (2026-10-23 to 30; the third 6a0d8c9, verified): every CRITICAL, HIGH and
-      MEDIUM fixed. Open LOW: option value types, `1abc` one floating token, no decode allocation cap
-      beyond the 4 MiB frame, run-time hash probing with crafted collisions, reserves kept in the file.
+- [x] Fresh reviews 1 to 3 (2026-10-23 to 30; the third 6a0d8c9, verified): every CRITICAL, HIGH, MEDIUM fixed.
+      Open LOW: option value types, `1abc` one token, no decode cap past the 4 MiB frame, crafted hash collisions, reserves kept.
 - [x] Fresh reviews 4 and 5 (Opus, 23dfab3..88e5b4c, 2026-10-30, 31): no CRITICAL or HIGH; all acted on or
       answered by Alex (revision log; review 4's M1 MinGW emulated TLS, M2 Windows record transport only).
 - [x] Sixth fresh review (Opus, 88e5b4c..ce2413c, 2026-11-01): no CRITICAL or HIGH; 2 MEDIUM (gate), 14 LOW,
       fixed or accepted (revision log). Outside it: compile builds lacked `-DNDEBUG`, no compile pilot Release.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11). `hypotheses.md` FROZEN 2026-11-01 (704061a); m 36 and 7.
 - [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
-- [ ] Next: request 16 (A52, queued behind A51); then 22, 24 on L, 23, 25 on W, 26; analysis of their archives.
+- [x] Request 16, L (A52, 2026-11-01): five records green at 9a3dc92; GCC lists 25 entries, all first-party files match the commit; gate pass. The W record failed to start (a chain bug), rerun as A54.
+- [ ] Next: A54 (W record). No campaign before it is green; then 23, 25 on W, 22, 24, 26 on L; analysis of their archives.
 
 ## Laptop requests
 
