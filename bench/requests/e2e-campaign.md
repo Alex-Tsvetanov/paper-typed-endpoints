@@ -85,7 +85,8 @@ share per window. `peak.jsonl`, one line per server run: `arm`, `payload`, `rep`
 
 Validity, per server run, as the pilots check it (requests 14 and 15): every window file reports
 0 failed, 0 errored, 0 timeout and only 2xx status codes (h2load), or `[OK]` only and no
-`Error distribution:` (ghz); the server log's last line says `failed 0`, and its `calls ok` lies
+`Error distribution:` (ghz); every window's generator exited with status 0 (`rc`, as request 15
+checked ghz's); the server log's last line says `failed 0`, and its `calls ok` lies
 between the sum S of the generator's counts over that run's windows (the warm-up included) and S
 plus the sum of 2 c m over those windows. A server run that fails a check is void. After row 80, each void run (rep, payload,
 arm) runs once more; a rerun writes `r<rep>x` wherever the first run writes `r<rep>`

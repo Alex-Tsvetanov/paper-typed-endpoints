@@ -111,15 +111,15 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Sixth fresh review (Opus, 88e5b4c..ce2413c, 2026-11-01): no CRITICAL or HIGH; 2 MEDIUM (gate), 14 LOW,
       fixed or accepted (revision log). Outside it: compile builds lacked `-DNDEBUG`, no compile pilot Release.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11). `hypotheses.md` FROZEN 2026-11-01 (704061a); m 36 and 7.
-- [ ] Next: request 16 (D5 records) at CODE_FREEZE 9a3dc92; then the campaigns' requests, at CODE_FREEZE.
+- [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
+- [ ] Next: request 16 (A52, queued behind A51); then 22, 24 on L, 23, 25 on W, 26; analysis of their archives.
 
 ## Laptop requests
 
 Since 2026-10-26 (Alex, AGENTS.md bc1a76d) a ready request goes straight to the coordinator's
 queue; design, scope and pushes still go to Alex.
 
-1. and 4. Done 2026-10-24 (`gap1-a-q4-*`: F1 at -O1, -O2) and 2026-10-29 (A19: `~/opt/gcc-16.2.0` on Arch).
-2. and 3. Done (A23 at c525595, 4b01a015...cc82: within 0.3%; A31 at fce6a17, 30ed7123...619e: knee c12 m128).
+1. to 4. Done: F1 at -O1, -O2 (`gap1-a-q4-*`); A19 `~/opt/gcc-16.2.0`; A23 4b01a015...cc82 within 0.3%; A31 30ed7123...619e knee c12 m128.
 5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-...` 22574257...4710), A28 at 614c9f4 (b90f1c76...e749).
 7. Done 2026-10-30 (A29 at fa60375, 345bea80...bf09): before reuse. R/P wide 0.86, 0.90, 0.77; many 1.00, 1.20, 1.56.
 8. and 9. Done 2026-10-30 (A33 at 16fdbd5, A35 at 3537817). Pilots. libc 22.5% of R's medium cycles; then Q beat R.

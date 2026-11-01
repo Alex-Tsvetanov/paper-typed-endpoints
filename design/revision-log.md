@@ -467,3 +467,33 @@ m = 7. The commit before it, 89e3072, replaced only section 2's descriptive bull
 pilots without `-DNDEBUG` with the Release-flag pilots' values; no rule and no hypothesis changed.
 `CODE_FREEZE` is 9a3dc92: since it only `hypotheses.md`, `STATE.md` and this log have changed.
 Request 16 (the D5 records) runs at it, and so do the campaigns' builds.
+
+## 2026-11-01. The campaign analysis, written before any campaign ran (ANALYSIS_COMMIT)
+
+`analysis/` (standard library, Python 3.14.5): `stats.py` (the exact one-sided sign test, Holm at
+alpha 0.05 per family, the 95% BCa interval from a clustered bootstrap with 10,000 resamples),
+`analyse.py` (reads the out folders of Laptop requests 22 to 25, and request 24's `test_allocs`
+output and request 26's counts; writes `results/summary.json` and `results/macros.tex`),
+`macros.py`, and `test_analyse.py` (17 tests on synthetic folders written in the requests'
+formats with the real order files; no timing). The directions and hypotheses are section 7's, held
+as tables. The BCa follows the earlier papers' conventions (ties half in z0, the share clipped,
+the jackknife acceleration over clusters, inverted-cdf ends); on 40 cases, ties included, it gave
+the same z0, acceleration and ends as P3's NumPy code to 8e-15 (desktop check, no timing). A fresh
+Opus review found 2 HIGH, 4 MEDIUM and 5 LOW; all fixed before this commit:
+- HIGH. `test_allocs` alternates R, P and Q only (11 counts, not 12).
+- HIGH. "The cells it touches" (section 3) is read as written: a cell is a payload at a load, so a
+  server run void twice makes both loads of its payload on that OS descriptive, every contrast in
+  them, whatever the run's arm (the first draft had dropped only the contrasts of that arm).
+- MEDIUM. A missing window or server log voids the run instead of stopping (a server that never
+  started); the Linux cross-check is reported and stops nothing; shares and peak lines must hold
+  their keys and never repeat; the generator's exit status rule is written into
+  `e2e-campaign.md` (request 15 checked ghz's; the job scripts void on it, coordinator, same day).
+- LOW. Retry lines get the campaign lines' checks; a null share is left out and counted; R many
+  4096 and the growth rows that end at it are labelled the secondary curve; seeds print as
+  identifiers; share macros say percent; the report prints m beside section 7's 36 and 7.
+Choices the hypotheses leave open, fixed here before any campaign data exists, are listed in
+`analyse.py`'s docstring: growth intervals clustered by replicate, the `mid` CPU share, the Linux
+latency summary (per replicate, then the median over replicates), the Windows mean call cycle
+1e6 / mean requests per second, the payload order seeded with the arm order, and the bootstrap
+seeds from sha256 of labels naming each cell. The campaign archives are opened only after this
+commit; any later change to `analysis/` is a revision-log entry with its reason.
