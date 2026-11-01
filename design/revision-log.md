@@ -334,3 +334,28 @@ The `-ftime-report` builds of R split as on Linux (`bench/pilot/phase_split.py`)
 72%, 74% and 77% of TOTAL for many 1024, many 2048 and wide 1024 (Linux 72%, 74%, 78%). Largest
 peak committed memory: R many 4096, 4,416 MiB (median of 3). Summed pilot medians put ten Windows
 replicates of the 18 cells at about 3.4 h of builds (Linux 3.2 h).
+
+## 2026-11-01. Plain libc++ on the laptop and second dry run of the D5 records (A48)
+
+A48's first job (Laptop request 19, archive sha256 c8881c94...89e8) copied the libc++ tarball
+(67aad2ef...4007, 1,671,512 bytes), found glibc 2.44 (2.38 needed), extracted it to
+`~/opt/libcxx-22.1.8`, and `sha256sum -c` over the manifest's 1,824 files printed nothing and
+exited 0. The modification times of `~/opt/libcxx-msan` and `~/opt/libcxx-msan-gcc` were the same
+before and after.
+
+The second job dry-ran the five Linux records at 230315e (archive sha256 af17ce75...e4d0), reusing
+the sanitizer protobuf prefixes of the first dry run; 328 s. All five green, 0 sanitizer reports:
+- GCC ASan+UBSan: 24 tests, `allocs` the declared skip; the fuzz smoke (300,000 runs); 8 load runs,
+  every arm and body, each server count within the bound, every server exit 0.
+- GCC TSan: 24 tests, `allocs` skipped; 8 load runs on two workers, all passing.
+- Clang ASan+UBSan, TSan and MSan: 8 tests each, `reflection_layer` the declared skip. Clang ASan
+  and TSan built against the new prefix; the first dry run's failure is gone.
+Inputs: every record wrote its hash file and its `--list` file. The GCC records hash `tep_server`,
+`e2e_transport`, `e2e_arms` and `e2e_pb` (25 entries: every `server/` source, the generated
+`e2e.pb.cc` and `e2e.pb.h`, and the five `include/tep/` headers, with the sha256 values the desktop
+recorded); ASan and TSan list the same paths and hashes. The clang records hash the five portable
+targets (`schema.hpp`, `wire.hpp`, `grpc.hpp`, their tests and fuzz drivers), the same in all
+three. The compile-curve gate at the laptop's paths: R wide 8 recorded the five headers, P wide 8
+none, and `check_compile_inputs.py` against the GCC ASan list printed `R: covered 1` (5 entries),
+`P: covered 1` (0) and `pass`. Nothing blocks the freeze on the records' side; the records proper
+run at the frozen commit.

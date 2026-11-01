@@ -113,7 +113,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Fifth fresh review (Opus, 1e4b25d..88e5b4c, 2026-10-31): no CRITICAL or HIGH; 2 MEDIUM, 5 LOW,
       all acted on (revision log): ghz `-B` bytes checked, out-of-memory tests, reuse follows shape.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11); `hypotheses.md` drafted (DRAFT).
-- [ ] Next: A48 (19, second dry run of 16); then fill `hypotheses.md` section 7 and freeze; 16 at the frozen commit.
+- [ ] Next: fill `hypotheses.md` section 7 and freeze; then 16 (D5 records) at the frozen commit, then the campaigns.
 
 ## Laptop requests
 
@@ -144,14 +144,14 @@ queue; design, scope and pushes still go to Alex.
     Pilot. ctest 23/23, 264 windows, checks pass. c12 m128 bounded by ghz (97% of 12 CPUs; server 24-62%):
     arms within 1%. c1 m1 medium R/P 1.021 separated, R/Q 1.008. c12 m1 (server 98%): medium P 45.0k > S
     42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
-16. D5 records (`sanitizer-records.md`). Dry run 2026-10-31 (A45 q2 at 701fe83, 57339cf8...9edd): GCC ASan (24/24, fuzz,
-    load), GCC TSan, clang MSan green; clang ASan, TSan red (no libc++ on L: 19). Four-target inputs, lists kept (decision 12).
+16. D5 records (`sanitizer-records.md`). Dry run 1 2026-10-31 (A45 q2 at 701fe83, 57339cf8...9edd): clang ASan, TSan red (19).
+    Dry run 2 2026-11-01 (A48 q2 at 230315e, af17ce75...e4d0): all five green, four-target inputs with lists, gate pass.
 17. Done 2026-11-01 (A46 at 1b93a97, a6a2bde7...ebca). Pilot. 111 builds valid, 3,885 s. All 18 Windows cells separated,
     as on Linux: wide 0.313 to 0.900; many 16 to 512 0.332 to 0.969, 1024 to 4096 1.129 to 1.438. 10 replicates: 3.4 h.
 18. Done 2026-10-31 (A45 q1 at 1b93a97, e15c8abc...bb3c). Pilot. 60 builds valid, 559 s. All 10 cells R faster,
     separated: wide 0.331 to 0.764, many 0.372 to 0.954 (many 512 closest). 10 Linux replicates of 18 cells: 3.2 h.
-19. Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`): Arch's package files from papers-dev, 67aad2ef...4007,
-    no download; clang ASan, TSan presets link it. Then a second dry run of all five records and the gate check (A48).
+19. Done 2026-11-01 (A48 q1, c8881c94...89e8). Plain libc++ 22.1.8 at `~/opt/libcxx-22.1.8` (`libcxx-22.1.8.md`, 67aad2ef...4007):
+    manifest check clean, glibc 2.44, MSan prefixes untouched; the clang ASan, TSan presets link it.
 
 ## Lab requests
 
