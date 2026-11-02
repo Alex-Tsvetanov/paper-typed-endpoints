@@ -63,7 +63,11 @@ Request 26 (`functional-evidence.md`, untimed), checked before it was added:
   keeps N. The text must say "at most N, within 0.5%", not an exact count.
 - D5: the counts compile `include/tep/` at 9a3dc92 (`-fsyntax-only`, `bench/constexpr_ops.sh`)
   with a generated schema. That is the commit of the green GCC records, whose file lists match it.
-  Unlike the compile curves, request 26 has no per-file gate against those lists.
+  Request 26 had no per-file gate, so one was run after it (2026-11-02, design revision log):
+  `bench/constexpr_ops_inputs.py` lists each cell's inputs with `g++ -MM` in papers-dev on a tree
+  exported at 9a3dc92 (`constexpr-ops-inputs.jsonl`), and `bench/check_compile_inputs.py` against
+  both GCC records' lists says pass: 18 of 18 cells, each the same 5 files, every file under
+  `include/tep/` (`constexpr-ops-gate.txt`).
 
 Adding `--constexpr-ops` changed nothing already here (the run of 2026-11-02, compared with
 commit d748546):

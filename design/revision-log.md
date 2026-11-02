@@ -512,3 +512,17 @@ too. The request's table row said "9 of 9", which read as no skip; it now names 
 was corrected to require exactly that skip list (`["reflection_layer"]`; any other skip, or none,
 stays red), and the record is made again under a new job id at 9a3dc92. `CODE_FREEZE` does not
 move. A54's archive (sha256 87f4540c...) keeps the red record; it is not filed.
+
+## 2026-11-02. A D5 inputs gate for the constant-evaluation counts, after their run
+
+Asked by the coordinator (2026-11-02), after A59 (request 26) ran. The counts compile `include/tep/`
+outside CMake (`bench/constexpr_ops.sh`, `-fsyntax-only`), as the compile curves do, but request 26
+had no per-file gate against the GCC records' lists; their coverage rested on HEAD being 9a3dc92.
+`bench/constexpr_ops_inputs.py` (new, untimed, run in papers-dev on a tree exported at 9a3dc92)
+lists each of the 18 cells' translation unit with `g++ -MM` and the job's flags, through
+`compile_curve.first_party_inputs`, and `bench/check_compile_inputs.py` checks the lists against the
+GCC ASan+UBSan and TSan records' (lab 811e13f). Result: gate pass, 18 of 18 cells covered, each
+listing the same 5 files, which are every file under `include/tep/` at 9a3dc92
+(`results/constexpr-ops-inputs.jsonl`, `results/constexpr-ops-gate.txt`). The image's compiler is
+GCC 16.2.1, the laptop's 16.2.0; since the lists hold the whole directory, no compiler could list a
+first-party file outside them. No number changes; `CODE_FREEZE` does not move.

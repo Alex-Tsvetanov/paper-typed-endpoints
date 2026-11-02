@@ -1,0 +1,3 @@
+R: covered 18, not covered 0, no inputs 0, not built 0; 90 gated file entries
+lists: typedendpoints-9a3dc9249-L-gcc-asan.inputs.tsv, typedendpoints-9a3dc9249-L-gcc-tsan.inputs.tsv
+D5 compile-curve gate: pass
