@@ -45,12 +45,25 @@ Checked before the analysis, beyond what the script checks:
 
 Request 26 (`functional-evidence.md`, untimed), checked before it was added:
 - The job ran at 9a3dc92 with GCC 16.2.0 and exited 0, with 0 failed checks.
-- Go 1.27.2 came from the pinned tarball (sha256 ecbadb99... checked). The module cache's tree
-  sha256 matched the desktop's on both sides before the job (335fdee4..., 5731 files).
+- Go 1.27.2 came from the pinned tarball (the job's `steps.log`: sha256 ecbadb99..., as
+  `bench/pins.md`). The module cache on the laptop had the desktop's tree sha256 (335fdee4...,
+  5731 files) before the job: the chain's staging step, `C:\Users\alext\lab\labrun-queues\chain-a59.log`.
+  Go built with `GOPROXY=off` and `-mod=readonly`, so every module was checked against `go.sum`.
 - `tools/build_interop.sh` built `interop_client` and `interop_server`. CTest passed 25 of 25.
   In `interop`, the grpc-go client and ghz called arms R, P and Q with 0 failures. The P5 client's
   6 replies from the grpc-go server decoded to the requests. ghz carried both bodies' exact bytes.
-- `constexpr-ops.txt` holds the 18 count lines in cell order, none above the ceiling.
+- The logs give one verdict per call, not per field. "Every field checked" rests on the code at
+  9a3dc92: the grpc-go client compares each reply with its request by `proto.Equal`
+  (`interop/go/interop_client/main.go:76`); the grpc-go server compares each request with the
+  known messages the same way (`interop/go/interop_server/main.go:58`); the P5 side decodes each
+  reply and compares it member by member (`server/test_interop.cpp:238`, the equality at
+  `include/tep/reflect.hpp:1533`).
+- `constexpr-ops.txt` holds the 18 count lines in cell order, none above the ceiling. Each count
+  is the bisection's upper bound: the script prints `ops <= N (within 0.5%)`, and the `Ops` macro
+  keeps N. The text must say "at most N, within 0.5%", not an exact count.
+- D5: the counts compile `include/tep/` at 9a3dc92 (`-fsyntax-only`, `bench/constexpr_ops.sh`)
+  with a generated schema. That is the commit of the green GCC records, whose file lists match it.
+  Unlike the compile curves, request 26 has no per-file gate against those lists.
 
 Adding `--constexpr-ops` changed nothing already here (the run of 2026-11-02, compared with
 commit d748546):

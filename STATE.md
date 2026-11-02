@@ -113,7 +113,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
 - [x] Request 16 (2026-11-01), all six records green at 9a3dc92: L A52, GCC lists 25 entries, all match the commit, gate pass; W A57, the rerun (A54 red on the script's "no skips" rule, revision log), 13 entries equal to A54's.
 - [x] Campaign A55 (2026-11-01, 02): requests 22 to 25 ran, nothing void; analysed at c5a326b (`results/`, `results/provenance.md`). All 36 compile and 7 end-to-end hypotheses pass Holm.
-- [x] Request 26 (A59, 2026-11-02): interop 25/25, 18 counts; the rerun with `--constexpr-ops` added 18 `Ops` macros, changed nothing else. Next: the manuscript (the coordinator schedules it).
+- [x] Request 26 (A59, 2026-11-02): interop 25/25, 18 counts; the rerun with `--constexpr-ops` added 18 `Ops` macros, changed nothing else. Next (P5 `AGENTS.md`, writing rule): the writing pack from the frozen files and `results/`.
 
 ## Laptop requests
 
