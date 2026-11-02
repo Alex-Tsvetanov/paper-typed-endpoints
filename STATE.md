@@ -112,7 +112,8 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Freeze proposal answered by Alex (2026-10-31, decision 11). `hypotheses.md` FROZEN 2026-11-01 (704061a); m 36 and 7.
 - [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
 - [x] Request 16 (2026-11-01), all six records green at 9a3dc92: L A52, GCC lists 25 entries, all match the commit, gate pass; W A57, the rerun (A54 red on the script's "no skips" rule, revision log), 13 entries equal to A54's.
-- [ ] Next: A55 runs the campaign (W q2, q1, q3, then L q4 to q7). Analyse each archive at c5a326b; a campaign that ran is never rerun.
+- [x] Campaign A55 (2026-11-01, 02): requests 22 to 25 ran, nothing void; analysed at c5a326b (`results/`, `results/provenance.md`). All 36 compile and 7 end-to-end hypotheses pass Holm.
+- [ ] Next: request 26 (A59, after A58); then the analysis again with `--constexpr-ops`, every existing macro unchanged.
 
 ## Laptop requests
 
@@ -151,8 +152,7 @@ queue; design, scope and pushes still go to Alex.
 20. and 21. Done 2026-11-01 (A50 at 9a3dc92, tools a24f257; L 4fd1df21...51bd, W 7e18a113...da37). Release flags. 222
     builds valid, gates pass, self-test ok. All 36 cells separated: wide R faster (L 0.314 to 0.844, W 0.322 to 0.835); many
     R faster 16 to 256, slower 512 to 4096 (512 flipped: 1.015 L, 1.014 W). 3,523 s, 3,839 s; 10 replicates L 3.3 h, W 3.6 h.
-22. to 26. Running as A55 (2026-11-01, at CODE_FREEZE): `compile-campaign.md` (22 L, 23 W), `e2e-campaign.md` (24 L, 25 W),
-    `functional-evidence.md` (26 L, untimed: interop, constant-evaluation counts).
+22. to 26. 22 to 25 done (A55 at CODE_FREEZE; `results/provenance.md`). 26 (`functional-evidence.md`, untimed) requeued as A59.
 
 ## Lab requests
 
