@@ -7,8 +7,8 @@ ANALYSIS_COMMIT c5a326bfee06c0966af400fd2c944d0205e53afe. The paper's numbers co
 Code: CODE_FREEZE 9a3dc9249809f08a08f84f06f708a362b755392d. D5 records green at that commit:
 five Linux records (A52, Papers lab commit 811e13f) and the Windows record (A57, 541a114).
 
-Inputs: the campaign chain A55 (2026-11-01 and 02), on the laptop. Each archive matches its
-`.sha256` file. Folders under `C:\Users\alext\lab\laptop-archive\`:
+Inputs: the campaign chain A55 (2026-11-01 and 02) and request 26 (chain A59, 2026-11-02), on the
+laptop. Each archive matches its `.sha256` file. Folders under `C:\Users\alext\lab\laptop-archive\`:
 
 | Request | Job | Archive folder | sha256 of the `.tar.gz` |
 |---|---|---|---|
@@ -18,12 +18,14 @@ Inputs: the campaign chain A55 (2026-11-01 and 02), on the laptop. Each archive 
 | 22 | p5-camp-compile-l | gap75-a-q4-p5-camp-compile-l-29a37194 | 513ef3eabd2b5ee3cea8a259b8dca19bc39f6a17cfb63810d2cb8dfabed1ea83 |
 | 24 build | p5-camp-e2e-build-l | gap75-a-q5-p5-camp-e2e-build-l-b0428ebe | cf189a46e9753d80c5754be3864c827d8da12cf2be9fba8f5f56e9a00c0856a3 |
 | 24 run | p5-camp-e2e-run-l | gap75-a-q6-p5-camp-e2e-run-l-2c36eb4e | 85348e56ffe12a00754a6a27d163051813fde6459b1bc4c8f64b81df5ddd29b7 |
+| 26 | p5-functional-l | gap75-a-q7-p5-functional-l-f57e1f08 | 3aaaebef356a10f7328e195181cb0a3ae44b13ff84ccf0aa6fcb8ec2ca1b3ef8 |
 
 Command (Python 3.14.5, standard library only), each folder the archive's unpacked `out`:
 
 ```
 python -I analysis/analyse.py --compile-linux <22>/out --compile-windows <23>/out \
-  --e2e-linux <24 run>/out --e2e-windows <25 run>/out --allocs <24 build>/out/test_allocs.txt --out results
+  --e2e-linux <24 run>/out --e2e-windows <25 run>/out --allocs <24 build>/out/test_allocs.txt \
+  --constexpr-ops <26>/out/constexpr-ops.txt --out results
 ```
 
 Checked before the analysis, beyond what the script checks:
@@ -41,6 +43,21 @@ Checked before the analysis, beyond what the script checks:
   job's own note that the check is invalid comes from a job check that wanted 9 files per arm
   instead of 5; it voids nothing.
 
-Not yet included: request 26 (`functional-evidence.md`: interoperability and the
-constant-evaluation counts), chain A59. When it lands, the command runs again with
-`--constexpr-ops`, and every macro already here must come out unchanged.
+Request 26 (`functional-evidence.md`, untimed), checked before it was added:
+- The job ran at 9a3dc92 with GCC 16.2.0 and exited 0, with 0 failed checks.
+- Go 1.27.2 came from the pinned tarball (sha256 ecbadb99... checked). The module cache's tree
+  sha256 matched the desktop's on both sides before the job (335fdee4..., 5731 files).
+- `tools/build_interop.sh` built `interop_client` and `interop_server`. CTest passed 25 of 25.
+  In `interop`, the grpc-go client and ghz called arms R, P and Q with 0 failures. The P5 client's
+  6 replies from the grpc-go server decoded to the requests. ghz carried both bodies' exact bytes.
+- `constexpr-ops.txt` holds the 18 count lines in cell order, none above the ceiling.
+
+Adding `--constexpr-ops` changed nothing already here (the run of 2026-11-02, compared with
+commit d748546):
+- No macro was removed or changed. The 18 `Ops` macros were appended, and the old `macros.tex`
+  is an exact prefix of the new one.
+- In `summary.json` only `constexpr_ops` differs: it was null and now holds 18 counts.
+- `report.txt` is byte-identical. Two runs gave byte-identical output.
+
+Interoperability is functional and has no macro. Its evidence is the archive's `ctest.log` and
+`ctest-interop.log`.
