@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import shutil
 import sys
 import tempfile
@@ -319,6 +320,29 @@ class EndToEndTest(unittest.TestCase):
         self.assertIn("\\newcommand{\\EWindowsMediumLightRvsPPass}{yes}", tex)
         self.assertIn("\\newcommand{\\CompM}{36}", tex)
         self.assertNotRegex(tex, r"\\newcommand\{\\[A-Za-z]*\d")
+
+    def test_compile_table_names_only_rendered_macros(self):
+        compile_dirs = {"linux": self.tmp / "cl", "windows": self.tmp / "cw"}
+        write_compile(compile_dirs["linux"], "linux")
+        i = index_of("windows", "many", 512, 5, "P")
+        retry = [build_line(r, "windows", random.Random(0), built=(r["gen"] == "R"))
+                 for r in pair_rows("windows", "many", 512, 5)]
+        write_compile(compile_dirs["windows"], "windows", broken={i: {"built": False}}, retry=retry,
+                      validate=["void many 512 r5", "retried many 512 r5", "descriptive many 512"])
+        summary = {"python": "test", "alpha": S.ALPHA, "resamples": S.B_RESAMPLES,
+                   "compile": A.analyse_compile(compile_dirs), "e2e": A.analyse_e2e(self.folders()),
+                   "allocs": None, "constexpr_ops": None}
+        defined = set(re.findall(r"\\newcommand\{\\(\w+)\}", M.render(summary)))
+        rows = M.compile_table(summary).splitlines()[1:]
+        self.assertEqual(len(rows), 36)
+        for row in rows:
+            self.assertTrue(set(re.findall(r"\\(Comp\w+?)\{\}", row)) <= defined, row)
+            self.assertEqual(row.count("&"), 11, row)
+            self.assertNotIn("--", row)
+        self.assertTrue(rows[0].startswith("Linux & wide & 16 & "))
+        self.assertTrue(rows[-1].startswith("Windows & many-message & 4096$^{\\dagger}$ & "))
+        self.assertEqual(sum("dagger" in r for r in rows), 2)
+        self.assertIn("no test & no test & no test", rows[32])  # Windows many 512: its pair void twice
 
 
 if __name__ == "__main__":

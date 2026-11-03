@@ -4,7 +4,8 @@
 
 Reads the unpacked `out` folders of Laptop requests 22 to 25 (bench/requests/compile-campaign.md,
 e2e-campaign.md), and optionally request 24's test_allocs output and request 26's constexpr-ops.txt;
-writes results/summary.json and results/macros.tex, and prints a report. Standard library only.
+writes results/summary.json, results/macros.tex and results/tables/compile.tex (the compile
+results as a table body of macros, added 2026-11-03), and prints a report. Standard library only.
 
   python -I analysis/analyse.py --compile-linux D --compile-windows D --e2e-linux D --e2e-windows D
                                 [--allocs FILE] [--constexpr-ops FILE] [--out results]
@@ -566,6 +567,8 @@ def main(argv: list[str] | None = None) -> int:
     a.out.mkdir(parents=True, exist_ok=True)
     (a.out / "summary.json").write_text(json.dumps(jsonable(summary), indent=1) + "\n", encoding="utf-8", newline="\n")
     (a.out / "macros.tex").write_text(macros.render(summary), encoding="utf-8", newline="\n")
+    (a.out / "tables").mkdir(exist_ok=True)
+    (a.out / "tables" / "compile.tex").write_text(macros.compile_table(summary), encoding="utf-8", newline="\n")
     print(macros.report(summary))
     return 0
 

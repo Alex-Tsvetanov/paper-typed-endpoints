@@ -526,3 +526,17 @@ listing the same 5 files, which are every file under `include/tep/` at 9a3dc92
 (`results/constexpr-ops-inputs.jsonl`, `results/constexpr-ops-gate.txt`). The image's compiler is
 GCC 16.2.1, the laptop's 16.2.0; since the lists hold the whole directory, no compiler could list a
 first-party file outside them. No number changes; `CODE_FREEZE` does not move.
+
+## 2026-11-03. A generated table body of the compile results, after the analysis
+
+Asked by the coordinator (2026-11-03) for the writing pack: the manuscript needs the 36 compile
+cells as one table, and a hand-built table would retype 360 macro names. `analysis/macros.py` gains
+`compile_table`, and `analysis/analyse.py` writes its output to `results/tables/compile.tex`: one row
+per cell (OS, shape, N, both medians, the ratio and its interval, the direction, pairs in direction
+of pairs, the Holm verdict, both peaks), every value a macro of `results/macros.tex`, the secondary
+curve's N marked with a dagger, and "no test" in place of a descriptive cell's "--" macros. A test
+covers it (`test_compile_table_names_only_rendered_macros`; 18 tests pass). This is a change to
+`analysis/` after `ANALYSIS_COMMIT` c5a326b. It reads no new input and computes nothing new: with
+the same inputs and arguments as `results/provenance.md` gives, two runs wrote `summary.json`,
+`macros.tex` and the printed report byte-identical to the committed ones, and the same table twice.
+No number changes.
