@@ -19,6 +19,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import analyse as A  # noqa: E402
+import figure as F  # noqa: E402
 import macros as M  # noqa: E402
 import stats as S  # noqa: E402
 
@@ -343,6 +344,77 @@ class EndToEndTest(unittest.TestCase):
         self.assertTrue(rows[-1].startswith("Windows & many-message & 4096$^{\\dagger}$ & "))
         self.assertEqual(sum("dagger" in r for r in rows), 2)
         self.assertIn("no test & no test & no test", rows[32])  # Windows many 512: its pair void twice
+
+    def clean_summary(self) -> dict:
+        compile_dirs = {"linux": self.tmp / "cl", "windows": self.tmp / "cw"}
+        write_compile(compile_dirs["linux"], "linux")
+        write_compile(compile_dirs["windows"], "windows")
+        return {"python": "test", "alpha": S.ALPHA, "resamples": S.B_RESAMPLES,
+                "compile": A.analyse_compile(compile_dirs), "e2e": A.analyse_e2e(self.folders()),
+                "allocs": None, "constexpr_ops": None}
+
+    def test_phase_macros_follow_every_earlier_macro(self):
+        summary = self.clean_summary()
+        tex = M.render(summary)
+        names = re.findall(r"\\newcommand\{\\(\w+)\}", tex)
+        phases = [n for n in names if "Phase" in n]
+        self.assertEqual(len(phases), 36 * 6)
+        self.assertEqual(names[-len(phases):], phases)  # appended: the earlier file stays a prefix
+        self.assertIn("\\newcommand{\\CompLinuxWideSixteenPhasePCompilePb}{", tex)
+        self.assertRegex(tex, r"\\newcommand\{\\CompWindowsManyFortyNinetySixPhaseRLink\}\{\d+\.\d{3}\}")
+        cell = next(c for c in summary["compile"]["cells"] if (c["os"], c["shape"], c["n"]) == ("linux", "wide", 16))
+        self.assertIn(f"\\newcommand{{\\CompLinuxWideSixteenPhaseRLink}}{{{cell['phases_r_s']['link']:.3f}}}", tex)
+        self.assertIn(f"\\newcommand{{\\CompLinuxWideSixteenPhasePCompileUser}}{{{cell['phases_p_s']['compile_user']:.3f}}}", tex)
+        self.assertFalse([line for line in tex.splitlines() if "Phase" in line and line.endswith("{--}")])
+        cell["phases_r_s"], cell["phases_p_s"] = cell["phases_p_s"], cell["phases_r_s"]  # swapped generators
+        with self.assertRaises(ValueError):
+            M.render(summary)
+
+    def test_committed_macros_rebuild_from_committed_summary(self):
+        results = HERE.parent / "results"
+        if not (results / "summary.json").exists():
+            self.skipTest("no committed results")
+        summary = json.loads((results / "summary.json").read_text(encoding="utf-8"))
+        self.assertEqual(M.render(summary), (results / "macros.tex").read_text(encoding="utf-8"))
+
+    def test_growth_table_names_only_rendered_macros(self):
+        summary = self.clean_summary()
+        defined = set(re.findall(r"\\newcommand\{\\(\w+)\}", M.render(summary)))
+        rows = M.growth_table(summary).splitlines()[1:]
+        self.assertEqual(len(rows), 2 * 2 * 8)
+        for row in rows:
+            self.assertTrue(set(re.findall(r"\\(Grow\w+?)\{\}", row)) <= defined, row)
+            self.assertEqual(row.count("&"), 6, row)
+            self.assertEqual(re.findall(r"\\Grow(?:Linux|Windows)([RP])", row), ["R"] * 3 + ["P"] * 3, row)
+        self.assertTrue(rows[0].startswith("Linux & wide & 16 to 32 & "))
+        self.assertEqual([r.split(" & ")[2] for r in rows if "dagger" in r], ["2048 to 4096$^{\\dagger}$"] * 2)
+
+    def test_figure_is_a_valid_deterministic_pdf(self):
+        summary = json.loads(json.dumps(A.jsonable(self.clean_summary())))
+        pdf = F.render(summary)
+        self.assertEqual(pdf, F.render(summary))
+        self.assertTrue(pdf.startswith(b"%PDF-1.4\n") and pdf.endswith(b"%%EOF\n"))
+        start = int(pdf.rsplit(b"startxref\n", 1)[1].split(b"\n")[0])
+        entries = pdf[start:].split(b"\n")[3:8]
+        for number, entry in enumerate(entries, 1):
+            self.assertEqual(len(entry) + 1, 20)
+            self.assertTrue(pdf[int(entry[:10]):].startswith(b"%d 0 obj\n" % number), number)
+        length = int(re.search(rb"/Length (\d+)", pdf)[1])
+        body = pdf.split(b"stream\n", 1)[1]
+        self.assertEqual(body[length:length + 10], b"\nendstream")
+        self.assertEqual(pdf.count(b"re B\n"), 18 + 2)  # a square per Windows point and per Windows legend entry
+        stream = body[:length].decode("latin-1")
+        tokens = re.findall(r"\S+", re.sub(r"\([^)]*\)", "()", stream))  # string operands aside
+        self.assertEqual([t for t in tokens if re.match(r"^([A-Za-z*]+[-\d.]|[-\d.]+[A-Za-z])", t)], [])
+        data = F.series(summary)
+        _, _, xa, ya = F.scales(data)
+        for points in data.values():  # every point and whisker sits where the summary puts it
+            for n, ratio, low, high, _ in points:
+                self.assertRegex(stream, re.escape(f"{xa(n):.2f} {ya(ratio):.2f} ") + "[ml] ")
+                self.assertIn(f"{xa(n):.2f} {ya(low):.2f} m {xa(n):.2f} {ya(high):.2f} l", stream)
+        hollow = sum(p[4] for points in data.values() for p in points)
+        self.assertEqual((hollow, stream.count("1 1 1 rg")), (2, hollow + 1))  # many 4096 per OS, and the legend
+        self.assertNotIn(b"CreationDate", pdf)
 
 
 if __name__ == "__main__":

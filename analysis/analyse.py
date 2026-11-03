@@ -4,8 +4,9 @@
 
 Reads the unpacked `out` folders of Laptop requests 22 to 25 (bench/requests/compile-campaign.md,
 e2e-campaign.md), and optionally request 24's test_allocs output and request 26's constexpr-ops.txt;
-writes results/summary.json, results/macros.tex and results/tables/compile.tex (the compile
-results as a table body of macros, added 2026-11-03), and prints a report. Standard library only.
+writes results/summary.json, results/macros.tex, results/tables/compile.tex and growth.tex (table
+bodies of macros) and results/figures/compile-ratio.pdf (drawn from summary.json; tables, figure and
+phase macros added 2026-11-03), and prints a report. Standard library only.
 
   python -I analysis/analyse.py --compile-linux D --compile-windows D --e2e-linux D --e2e-windows D
                                 [--allocs FILE] [--constexpr-ops FILE] [--out results]
@@ -55,6 +56,7 @@ from fractions import Fraction
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import figure  # noqa: E402
 import macros  # noqa: E402
 import stats as S  # noqa: E402
 
@@ -569,6 +571,10 @@ def main(argv: list[str] | None = None) -> int:
     (a.out / "macros.tex").write_text(macros.render(summary), encoding="utf-8", newline="\n")
     (a.out / "tables").mkdir(exist_ok=True)
     (a.out / "tables" / "compile.tex").write_text(macros.compile_table(summary), encoding="utf-8", newline="\n")
+    (a.out / "tables" / "growth.tex").write_text(macros.growth_table(summary), encoding="utf-8", newline="\n")
+    (a.out / "figures").mkdir(exist_ok=True)  # the figure reads summary.json as written, nothing else
+    (a.out / "figures" / "compile-ratio.pdf").write_bytes(
+        figure.render(json.loads((a.out / "summary.json").read_text(encoding="utf-8"))))
     print(macros.report(summary))
     return 0
 

@@ -2,9 +2,10 @@
 
 `summary.json` and `macros.tex` are written by `analysis/analyse.py`, unchanged since
 ANALYSIS_COMMIT c5a326bfee06c0966af400fd2c944d0205e53afe except for one addition that changes no
-number: since 2026-11-03 it also writes `tables/compile.tex`, the compile results as a table body
-whose every value is a macro (design revision log of that date; the rerun wrote `summary.json`,
-`macros.tex` and the report byte-identical). The paper's numbers come only from `macros.tex`
+number: since 2026-11-03 it also writes `tables/compile.tex` and `tables/growth.tex` (table bodies whose
+every value is a macro), `figures/compile-ratio.pdf` (drawn from `summary.json`), and the
+phase-time macros, appended after every earlier macro (design revision log of that date; reruns
+wrote `summary.json` and the report byte-identical, and no earlier macro changed). The paper's numbers come only from `macros.tex`
 (`hypotheses.md` section 5). `report.txt` is the script's printed report.
 
 Code: CODE_FREEZE 9a3dc9249809f08a08f84f06f708a362b755392d. D5 records green at that commit:

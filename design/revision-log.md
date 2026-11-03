@@ -540,3 +540,30 @@ covers it (`test_compile_table_names_only_rendered_macros`; 18 tests pass). This
 the same inputs and arguments as `results/provenance.md` gives, two runs wrote `summary.json`,
 `macros.tex` and the printed report byte-identical to the committed ones, and the same table twice.
 No number changes.
+
+## 2026-11-03. Phase-time macros, a growth table body and a figure, after the analysis
+
+Asked by the coordinator (2026-11-03) for the manuscript's requests 11 to 13. All three are drawn from
+what the analysis already computed; none changes a number.
+- `analysis/macros.py`: `phase_macros` adds `\Comp<OS><Shape><N>Phase<Gen><Phase>`, the median wall
+  time of each build phase (seconds, three decimals) from `phases_r_s` and `phases_p_s` of
+  `summary.json`. They are appended after every earlier macro, so the earlier `macros.tex` is an
+  exact prefix of the new one (877 macros before, 1093 after, none removed or changed). A changed set
+  of phase names stops the render instead of printing "--". `growth_table` writes
+  `results/tables/growth.tex` (32 rows of growth ratios and intervals, every value a macro).
+- `analysis/figure.py` (new) writes `results/figures/compile-ratio.pdf`: the compile ratio against N,
+  drawn by hand as a vector PDF from `summary.json` as written, with no library outside the standard
+  library and no date, so the same summary gives the same bytes. Its font, the standard Helvetica,
+  is not embedded; a submission that requires embedded fonts needs a post-processing step.
+- Tests: five new ones (phase values and the phase-name guard, the growth table's macros and column
+  order, the figure's structure, every plotted point and interval read back, the hollow marker count,
+  and `macros.tex` rebuilt from the committed `summary.json`); 22 pass.
+- One review pass (a separate agent, 2026-11-03) found no CRITICAL or HIGH issue. It recomputed all
+  216 phase values from `summary.json` and mapped every plotted point back to its ratio and interval.
+  Its MEDIUM items were acted on: the value tests above, and the notes that the intervals are shorter
+  than the markers and that the font is not embedded. Its suggestion to call the hollow point the
+  "secondary curve" in the legend was not taken, since the paper's wording for it is "raised-limit
+  build" and the point is marked in the figure as the frozen design requires.
+- With the same inputs and arguments as `results/provenance.md` gives, `summary.json`, the printed
+  report and `tables/compile.tex` are byte-identical to the committed ones, and two runs wrote the same
+  bytes for every output.
