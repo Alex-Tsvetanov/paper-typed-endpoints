@@ -2,3 +2,4 @@
 *.bin binary
 *.cmd text eol=crlf
 *.ps1 text eol=crlf
+*.pdf binary
