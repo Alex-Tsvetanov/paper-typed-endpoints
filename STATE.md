@@ -121,8 +121,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       M2 frozen in `hypotheses-m2.md` (arm G, gRPC C++ 1.84.2, async completion queue, `arm_g/` outside the guarded
       paths; R against G two-sided in 4 cells, macros `Grpc*` in `results-m2/`), laptop requests 34 to 36. Desktop checks
       (untimed, papers-dev): the Release prefix builds; test_g and 80,000 h2load calls pass on the Release G. The first
-      ASan prefix build stopped on F2 (flags fixed); later sanitized builds were cut by Docker, not by the build, so
-      request 34 is the first complete sanitized gRPC build and request 35 the first G records.
+      ASan prefix build stopped on F2 (flags fixed); the next two were cut before they finished (17:57, Docker's VM
+      under memory pressure; 19:54, stopped at Alex's request for the desktop's load, WSL shut down). Rerun the
+      desktop ASan and TSan gRPC builds after the restart (not before the pause), unless the laptop's 34 and 35 come
+      first; until then request 34 is the first complete sanitized gRPC build and request 35 the first G records.
 - [x] Q20261103-p5-2 (option 1): the seven archives are release data-2026-11 at 9a36115.
 
 ## Laptop requests
