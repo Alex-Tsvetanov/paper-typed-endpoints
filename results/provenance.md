@@ -12,7 +12,10 @@ Code: CODE_FREEZE 9a3dc9249809f08a08f84f06f708a362b755392d. D5 records green at 
 five Linux records (A52, Papers lab commit 811e13f) and the Windows record (A57, 541a114).
 
 Inputs: the campaign chain A55 (2026-11-01 and 02) and request 26 (chain A59, 2026-11-02), on the
-laptop. Each archive matches its `.sha256` file. Folders under `C:\Users\alext\lab\laptop-archive\`:
+laptop. Each archive matches its `.sha256` file. Since 2026-11-03 the seven archives are public,
+unchanged, as the release `data-2026-11` (tag at 9a3611510e64e9378cf0d52dce52843f2e8a4977, Alex's
+answer to Q20261103-p5-2): https://github.com/Alex-Tsvetanov/paper-typed-endpoints/releases/tag/data-2026-11 ;
+GitHub's digests of the uploaded files equal the table. Folders under `C:\Users\alext\lab\laptop-archive\`:
 
 | Request | Job | Archive folder | sha256 of the `.tar.gz` |
 |---|---|---|---|

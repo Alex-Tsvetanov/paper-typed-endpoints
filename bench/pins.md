@@ -69,10 +69,17 @@ libev 4.33 is the newest release. Digest sources, checked 2026-10-30: Homebrew's
 (`formulae.brew.sh/api/formula/libev.json`, field `checksum`) and FreeBSD ports
 (`devel/libev/distinfo`, which also gives the size). The upstream site publishes no digest.
 
-## Lab request 5 (draft): gRPC C++ for arm G (M2) and oha (M3)
+## Lab request 5: gRPC C++ for arm G (M2) and oha (M3)
 
-Spec only, written 2026-11-03; nothing is downloaded until Alex answers Q20261103-p5-3
-(`lab/pipeline/questions.md` in Papers). Every digest below was read from its source on 2026-11-03.
+Written 2026-11-03. Every digest below was read from its source that day. Alex answered
+Q20261103-p5-3 (`lab/pipeline/questions.md` in Papers) the same day, verbatim: "P6-1, P5-2, P5-3:
+option 1 on all three", that is, download everything listed. Done 2026-11-03: each file was
+downloaded once on the desktop into a new empty folder, `C:\Users\alext\opt\_dl\p5-grpc-1.84.2` (the
+gRPC files) and `C:\Users\alext\opt\_dl\p5-oha-1.16.0` (oha), and `sha256sum -c --strict` against
+the digests below passed for all ten. The downloaded sizes of the files whose size is not published:
+grpc-1.84.2.tar.gz 16,339,256 bytes, cel-spec 196,469, envoy-api 774,790, googleapis 18,949,257,
+grpc-proto 48,061, protoc-gen-validate 193,595, xds 181,554. The laptop gets copies of these
+folders, checked again there.
 
 gRPC v1.84.2 (tag commit 41ee9aad18b902ea75a6ff5505d71dce6082613f, not a prerelease, no release
 assets) is the newest release whose `third_party/abseil-cpp` is abseil 20250512.1 (submodule
