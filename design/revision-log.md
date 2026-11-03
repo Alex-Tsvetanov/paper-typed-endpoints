@@ -593,3 +593,21 @@ Grok round 1's runs M1(a) to M4. This entry covers M1(a) and M4; M2 and M3 wait 
   version; its bodies are checked by digest instead). `bench/pins.md`: Lab request 5, a draft spec of
   gRPC 1.84.2 with its dependencies and oha 1.16.0 for M2 and M3; nothing is downloaded until Alex
   answers Q20261103-p5-3. `bench/requests/replication.md` and `mixed-traffic.md`: requests 27 to 31.
+
+## 2026-11-03. Third freeze: a second load generator, oha (hypotheses-m3.md)
+
+Alex answered Q20261103-p5-3 ("P6-1, P5-2, P5-3: option 1 on all three"): download gRPC and its
+dependencies for M2 and oha for M3. All ten files were downloaded once on the desktop and their
+digests checked (`bench/pins.md`, Lab request 5). This entry covers M3.
+- `hypotheses-m3.md` (new, frozen by the commit that adds it): oha 1.16.0 at the c12 m128 load on
+  Linux, against the replication's build; a pilot whose gate (the server at least 95% of one CPU for
+  every arm and payload, the threshold of decision (e)) decides whether the campaign runs; then a
+  campaign of R against P and Q for both payloads, its own family of 4, directions from the first
+  campaign.
+- `bench/campaign_order.py --m3` writes `bench/campaign-m3/oha-order-linux.tsv`; the first campaign's
+  and the replication's orders are written byte for byte as before (checked).
+- `analysis/analyse_m3.py` (new) and its 6 tests; `results-m3/`, macros named `Oha*`.
+- `bench/requests/oha.md`: Laptop requests 32 (pilot) and 33 (campaign).
+- Before the freeze, a functional check in papers-dev (no network, count mode, no rate read): oha
+  1.16.0 completed calls on every arm and payload of the server over cleartext HTTP/2 with only 200
+  responses and no errors, and each server log said `failed 0`.

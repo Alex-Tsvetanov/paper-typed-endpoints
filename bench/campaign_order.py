@@ -15,10 +15,12 @@ whose new labels give new seeds:
            arms (R, P, Q, S) in a shuffled order. 80 server runs.
   mixed    (replication only, Linux; hypotheses-r2.md section 4; label "P5 mixed e2e linux")
            10 replicates; in each, the four arms in a shuffled order. 40 server runs.
+  oha      (hypotheses-m3.md, Linux; label "P5 oha e2e linux") as e2e: 80 server runs.
 
 The files under bench/campaign/ are the orders the jobs follow; this script only made them.
 Usage: campaign_order.py OUT_DIR        writes compile-order-{linux,windows}.tsv, e2e-order-{linux,windows}.tsv
        campaign_order.py --r2 OUT_DIR   writes the replication's four orders and mixed-order-linux.tsv
+       campaign_order.py --m3 OUT_DIR   writes oha-order-linux.tsv
 """
 from __future__ import annotations
 
@@ -96,14 +98,18 @@ def write(path: pathlib.Path, label: str, lines: list[str]) -> None:
 
 def main() -> int:
     args = sys.argv[1:]
-    r2 = args[:1] == ["--r2"]
-    if r2:
+    mode = args[0] if args[:1] in (["--r2"], ["--m3"]) else None
+    if mode:
         args = args[1:]
+    r2 = mode == "--r2"
     if len(args) != 1:
         print(__doc__, file=sys.stderr)
         return 2
     out = pathlib.Path(args[0])
     out.mkdir(parents=True, exist_ok=True)
+    if mode == "--m3":
+        write(out / "oha-order-linux.tsv", *e2e_order("linux", "P5 oha"))
+        return 0
     prefix = "P5 replication" if r2 else "P5 campaign"
     for name, make in (("compile", compile_order), ("e2e", e2e_order)):
         for os_name in ("linux", "windows"):

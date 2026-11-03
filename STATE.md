@@ -116,7 +116,10 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Request 26 (A59, 2026-11-02): interop 25/25, 18 counts; the rerun with `--constexpr-ops` added 18 `Ops` macros, changed nothing else; Ops D5 inputs gate pass (9402e17). Public at github.com/Alex-Tsvetanov/paper-typed-endpoints (2026-11-02). Writing pack filled (Papers 285de48, 8344b4e); compile table body ee2604f (revision log 2026-11-03, no number changes). Next: the writer session.
 - [ ] Grok round 1 runs (Alex, Q20261103-p5-1: "P5-1: Just run them, yes."). M1(a) and M4 frozen in `hypotheses-r2.md` (2026-11-03;
       analysis `analysis/analyse_r2.py`, macros `Rep*` and `Mix*` in `results-r2/`), laptop requests 27 to 31. M2 (gRPC C++ arm G)
-      and M3 (oha) wait on the downloads question Q20261103-p5-3; each gets its own freeze.
+      and M3 (oha): Alex said yes to the downloads (Q20261103-p5-3, option 1); all ten checked (Lab request 5).
+      M3 frozen in `hypotheses-m3.md` (oha pilot with a 95% saturation gate, then a campaign), laptop requests 32, 33.
+      M2: gRPC 1.84.2 build check and arm G (`arm_g/`, a standalone project outside the guarded paths) next.
+- [x] Q20261103-p5-2 (option 1): the seven archives are release data-2026-11 at 9a36115.
 
 ## Laptop requests
 
@@ -140,13 +143,14 @@ queue; design, scope and pushes still go to Alex.
     R faster 16 to 256, slower 512 to 4096 (512 flipped: 1.015 L, 1.014 W). 3,523 s, 3,839 s; 10 replicates L 3.3 h, W 3.6 h.
 22. to 26. Done at CODE_FREEZE (`results/provenance.md`): 22 to 25 A55; 26 (`functional-evidence.md`, untimed) A59, 3aaaebef...3ef8.
 27. to 31. Queued 2026-11-03 at R2_FREEZE (`hypotheses-r2.md`): the replication 27 to 30 (`replication.md`), mixed traffic 31 (`mixed-traffic.md`).
+32. and 33. At M3_FREEZE (`hypotheses-m3.md`, `oha.md`): the oha pilot and, after a passed gate, its campaign.
 
 ## Lab requests
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 1. Done 2026-10-29: protobuf 36.2, abseil 20250512.1 (`C:\Users\alext\opt\_dl\p5-protobuf-36.2`). 4. Done 2026-10-24: MinGW zip.
 2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2, ghz v0.121.0, `go.sum`. 3. Done: nghttp2 1.70.0, libev 4.33.
-5. Draft 2026-11-03 (`bench/pins.md`): gRPC 1.84.2 with its dependencies (M2) and oha 1.16.0 (M3); waits on Q20261103-p5-3.
+5. Done 2026-11-03 (Alex: Q20261103-p5-3, option 1): gRPC 1.84.2 with its dependencies (M2) and oha 1.16.0 (M3), `C:\Users\alext\opt\_dl\p5-{grpc-1.84.2,oha-1.16.0}`.
 
 ## Alex decides
 
