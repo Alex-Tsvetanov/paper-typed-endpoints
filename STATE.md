@@ -17,8 +17,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 
 ## Repository
 
-- Local only: `Papers/p5-typed-endpoints/typed-endpoints`, branch `main`, no remote. It becomes
-  `paper-typed-endpoints` on GitHub (Apache-2.0) only at Alex's yes.
+- `Papers/p5-typed-endpoints/typed-endpoints`, branch `main`, public as `paper-typed-endpoints` (Apache-2.0, 2026-11-02).
 - C++ namespace `tep`. Header-only library under `include/tep/`.
   - Portable C++23 (GCC, clang, MSVC): `schema.hpp` (lexer, parser, checks, name resolution,
     definition order), `wire.hpp` (varint, zigzag, fixed, bounded reader, writer, UTF-8),
