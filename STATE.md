@@ -113,7 +113,7 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Campaign requests 22 to 26 and the analysis (`analysis/`, ANALYSIS_COMMIT) written before any campaign ran.
 - [x] Request 16 (2026-11-01), all six records green at 9a3dc92: L A52, GCC lists 25 entries, all match the commit, gate pass; W A57, the rerun (A54 red on the script's "no skips" rule, revision log), 13 entries equal to A54's.
 - [x] Campaign A55 (2026-11-01, 02): requests 22 to 25 ran, nothing void; analysed at c5a326b (`results/`, `results/provenance.md`). All 36 compile and 7 end-to-end hypotheses pass Holm.
-- [x] Request 26 (A59, 2026-11-02): interop 25/25, 18 counts; the rerun with `--constexpr-ops` added 18 `Ops` macros, changed nothing else; Ops D5 inputs gate pass (9402e17). Next: the writing pack, a writer session the coordinator proposes to Alex; no remote yet (push waits on Alex).
+- [x] Request 26 (A59, 2026-11-02): interop 25/25, 18 counts; the rerun with `--constexpr-ops` added 18 `Ops` macros, changed nothing else; Ops D5 inputs gate pass (9402e17). Public at github.com/Alex-Tsvetanov/paper-typed-endpoints (2026-11-02). Writing pack filled (Papers 285de48, 8344b4e); compile table body ee2604f (revision log 2026-11-03, no number changes). Next: the writer session.
 
 ## Laptop requests
 
