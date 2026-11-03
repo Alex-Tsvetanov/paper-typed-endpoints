@@ -114,6 +114,9 @@ design note maps each erratum to the P5 test or experiment that replaces it.
 - [x] Request 16 (2026-11-01), all six records green at 9a3dc92: L A52, GCC lists 25 entries, all match the commit, gate pass; W A57, the rerun (A54 red on the script's "no skips" rule, revision log), 13 entries equal to A54's.
 - [x] Campaign A55 (2026-11-01, 02): requests 22 to 25 ran, nothing void; analysed at c5a326b (`results/`, `results/provenance.md`). All 36 compile and 7 end-to-end hypotheses pass Holm.
 - [x] Request 26 (A59, 2026-11-02): interop 25/25, 18 counts; the rerun with `--constexpr-ops` added 18 `Ops` macros, changed nothing else; Ops D5 inputs gate pass (9402e17). Public at github.com/Alex-Tsvetanov/paper-typed-endpoints (2026-11-02). Writing pack filled (Papers 285de48, 8344b4e); compile table body ee2604f (revision log 2026-11-03, no number changes). Next: the writer session.
+- [ ] Grok round 1 runs (Alex, Q20261103-p5-1: "P5-1: Just run them, yes."). M1(a) and M4 frozen in `hypotheses-r2.md` (2026-11-03;
+      analysis `analysis/analyse_r2.py`, macros `Rep*` and `Mix*` in `results-r2/`), laptop requests 27 to 31. M2 (gRPC C++ arm G)
+      and M3 (oha) wait on the downloads question Q20261103-p5-3; each gets its own freeze.
 
 ## Laptop requests
 
@@ -122,27 +125,10 @@ queue; design, scope and pushes still go to Alex.
 
 1. to 4. Done: F1 at -O1, -O2 (`gap1-a-q4-*`); A19 `~/opt/gcc-16.2.0`; A23 4b01a015...cc82 within 0.3%; A31 30ed7123...619e knee c12 m128.
 5. and 6. Done 2026-10-30: A27 at 4d205b4 (`gap48-...` 22574257...4710), A28 at 614c9f4 (b90f1c76...e749).
-7. Done 2026-10-30 (A29 at fa60375, 345bea80...bf09): before reuse. R/P wide 0.86, 0.90, 0.77; many 1.00, 1.20, 1.56.
-8. and 9. Done 2026-10-30 (A33 at 16fdbd5, A35 at 3537817). Pilots. libc 22.5% of R's medium cycles; then Q beat R.
-10. Done 2026-10-30 (A38 step 1 at 30818a5, `gap60-a-q1-*` 5f817497...acc6): 51/51. R/P many 0.33, 1.24,
-    1.52, 1.92, wide 0.30, 0.89, 0.90, 0.74. Reuse grew instantiation and code generation.
-11. Done 2026-10-30 (A38b at 30818a5, `e2e-pilot-4.md`, `gap60-a-q2/q3-*`). Pilot. 264 windows; no order
-    effect. Q beat R on medium from c12 m8 (0.94 to 0.85). Medium cycles:u per request R 8,902, Q 7,751.
-12. Done 2026-10-30 (A39 at 15aaa6a, `compile-handlers.md`). Pilot. R many 1024 to 4096 -4.9, -13.1, -24.3%.
-13. Done 2026-10-31 (A40 at db1f31c, `compile-rerun-5.md`; `gap62-a-q1-p5-rerun5-96943287` 3ce6458f...e246).
-    Pilot. 51/51; P within 0.8% of A38. R many against A29 +14.4, +7.9, -6.8%; R wide against A38 +0.9 to
-    +1.6% (a loss). R/P many 0.32, 1.14, 1.29, 1.45; wide 0.31, 0.90, 0.92, 0.76. RSS R many 4096 4,059 MiB.
-14. Done 2026-10-31 (A40 at db1f31c, `e2e-pilot-5.md`; `gap62-a-q2-p5-e2e5-build-7c02aacf` b380de1a...7d8d,
-    `gap62-a-q3-p5-e2e5-run-ccf9cf23` b566c31e...7744). Pilot. ctest 24 of 24; R medium 0 allocations; 264
-    windows, checks pass; second runs within 1.5%. Every R window above every Q window in 12 of 14 cells:
-    small 1.014 to 1.046 from c12 m1, medium 1.023 to 1.041; ties at small c1 m1 (all arms) and medium c48
-    m128 (1.016, overlap). R/P small 1.03 to 1.09, medium 1.06 to 1.25. Against pilot 4: S, P, Q within 2%,
-    R medium +3.6 to +19%. Medium cycles:u per request R 7,659, Q 7,820; libc R 455. Clearing kept
-    storage (`clear_within_slack`, `truncate`) is 3.5% of R's medium cycles. Analysis: `bench/pilot/`.
-15. Done 2026-10-31 (A43b at 40e9211; build 3c5e775c...1164, run 6103414c...1239; `pilot_e2e_windows.py`).
-    Pilot. ctest 23/23, 264 windows, checks pass. c12 m128 bounded by ghz (97% of 12 CPUs; server 24-62%):
-    arms within 1%. c1 m1 medium R/P 1.021 separated, R/Q 1.008. c12 m1 (server 98%): medium P 45.0k > S
-    42.5k > R 38.8k > Q 38.1k, cause unknown (a Windows transport regime). ghz latency quantized (~0.5 ms).
+7. to 15. Done 2026-10-30 and 31, pilots (each request's file in `bench/requests/`, the analysis in `bench/pilot/`):
+    7 A29 (345bea80...bf09), 8 A33, 9 A35, 10 A38 (5f817497...acc6), 11 A38b, 12 A39, 13 A40 (3ce6458f...e246),
+    14 A40 (build b380de1a...7d8d, run b566c31e...7744), 15 A43b (build 3c5e775c...1164, run 6103414c...1239).
+    Pilot numbers are in those files and the revision log; none is a result. Windows c12 m128 is bounded by ghz.
 16. Done 2026-11-01 at 9a3dc92 (`sanitizer-records.md`): L A52 (filed 811e13f), W A57 (filed 541a114). Dry runs:
     1 (A45 q2 at 701fe83, 57339cf8...9edd) clang ASan, TSan red (19); 2 (A48 q2 at 230315e, af17ce75...e4d0) all green.
 17. and 18. Done (A46 W, a6a2bde7...ebca; A45 q1 L, e15c8abc...bb3c; at 1b93a97). Without `-DNDEBUG`, so they fix
@@ -153,12 +139,14 @@ queue; design, scope and pushes still go to Alex.
     builds valid, gates pass, self-test ok. All 36 cells separated: wide R faster (L 0.314 to 0.844, W 0.322 to 0.835); many
     R faster 16 to 256, slower 512 to 4096 (512 flipped: 1.015 L, 1.014 W). 3,523 s, 3,839 s; 10 replicates L 3.3 h, W 3.6 h.
 22. to 26. Done at CODE_FREEZE (`results/provenance.md`): 22 to 25 A55; 26 (`functional-evidence.md`, untimed) A59, 3aaaebef...3ef8.
+27. to 31. Queued 2026-11-03 at R2_FREEZE (`hypotheses-r2.md`): the replication 27 to 30 (`replication.md`), mixed traffic 31 (`mixed-traffic.md`).
 
 ## Lab requests
 
 Specs for 1 to 3 (exact versions, URLs, published sha256): `bench/pins.md` (2026-10-29).
 1. Done 2026-10-29: protobuf 36.2, abseil 20250512.1 (`C:\Users\alext\opt\_dl\p5-protobuf-36.2`). 4. Done 2026-10-24: MinGW zip.
 2. Done 2026-10-30 (Alex: "Download all (Recommended)"): Go 1.27.2, ghz v0.121.0, `go.sum`. 3. Done: nghttp2 1.70.0, libev 4.33.
+5. Draft 2026-11-03 (`bench/pins.md`): gRPC 1.84.2 with its dependencies (M2) and oha 1.16.0 (M3); waits on Q20261103-p5-3.
 
 ## Alex decides
 

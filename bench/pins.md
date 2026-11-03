@@ -69,9 +69,56 @@ libev 4.33 is the newest release. Digest sources, checked 2026-10-30: Homebrew's
 (`formulae.brew.sh/api/formula/libev.json`, field `checksum`) and FreeBSD ports
 (`devel/libev/distinfo`, which also gives the size). The upstream site publishes no digest.
 
+## Lab request 5 (draft): gRPC C++ for arm G (M2) and oha (M3)
+
+Spec only, written 2026-11-03; nothing is downloaded until Alex answers Q20261103-p5-3
+(`lab/pipeline/questions.md` in Papers). Every digest below was read from its source on 2026-11-03.
+
+gRPC v1.84.2 (tag commit 41ee9aad18b902ea75a6ff5505d71dce6082613f, not a prerelease, no release
+assets) is the newest release whose `third_party/abseil-cpp` is abseil 20250512.1 (submodule
+76bb24329e8bf5f39704eb10d21b9a80befa7c81, the commit of that tag), P5's pin. Its
+`third_party/protobuf` is protobuf v35.1; P5 builds it against protobuf 36.2 with
+`gRPC_PROTOBUF_PROVIDER=package` and `gRPC_ABSL_PROVIDER=package` (gRPC's CMake asks for
+`find_package(... CONFIG)` with no version). That this builds is not yet shown; it is checked first
+in papers-dev, untimed. v1.85.x needs abseil 20260526.0. OpenSSL and zlib: the laptop's Arch
+packages (`gRPC_SSL_PROVIDER=package`, openssl 3.6.4-1 as recorded by request 24), as for h2load.
+
+| File | Bytes | sha256 | URL | Digest source |
+|---|---|---|---|---|
+| grpc-1.84.2.tar.gz (tag archive) | not published | f1a923286c7eb1d13ca486a0c24cb6332f8fc64311d8b7c77d6dabdea0920f23 | https://github.com/grpc/grpc/archive/refs/tags/v1.84.2.tar.gz | Bazel Central Registry `modules/grpc/1.84.2/source.json` (integrity, SRI base64) |
+| c-ares-1.34.9.tar.gz | 1,083,895 | 9364b70a12eb59a06830fb488d9357f90100dff0d98b23ea3593a183d43e6f2f | https://github.com/c-ares/c-ares/releases/download/v1.34.9/c-ares-1.34.9.tar.gz | release asset `digest` |
+| re2-2025-11-05.tar.gz | 397,504 | 87f6029d2f6de8aa023654240a03ada90e876ce9a4676e258dd01ea4c26ffd67 | https://github.com/google/re2/releases/download/2025-11-05/re2-2025-11-05.tar.gz | release asset `digest` |
+
+c-ares 1.34.9 is a patch release after the 1.34.5 gRPC's submodule pins; re2 2025-11-05 declares
+abseil 20250512.1 in its own `MODULE.bazel`. gRPC's `CMakeLists.txt` at v1.84.2 fetches six archives
+of protocol definitions at configure time unless their folders exist, each with the sha256 it pins
+(lines 404 to 463); P5 downloads them beforehand and places them in those folders:
+
+| Folder under `third_party/` | sha256 | URL |
+|---|---|---|
+| cel-spec | 13583c5a312861648449845b709722676a3c9b43396b6b8e9cbe4538feb74ad2 | https://github.com/google/cel-spec/archive/refs/tags/v0.25.1.tar.gz |
+| envoy-api | ed5e6c319f8ebcdf24a9491f866a599bb9a3c193b859a94ad13bd31f85b46855 | https://github.com/envoyproxy/data-plane-api/archive/6ef568cf4a67362849911d1d2a546fd9f35db2ff.tar.gz |
+| googleapis | 07a6f700cee5ca796f5230876ed8454bf1d8cc409b3b3e634505bc4f32a9f72b | https://github.com/googleapis/googleapis/archive/2193a2bfcecb92b92aad7a4d81baa428cafd7dfd.zip |
+| grpc-proto | 5e9b520b22afbd53a662cc29017064be253c1dfa6df8958738594e7fec6ade33 | https://github.com/grpc/grpc-proto/archive/ec30f589e2519d595688b9a42f88a91bdd6b733f.tar.gz |
+| protoc-gen-validate | e4718352754df1393b8792b631338aa8562f390e8160783e365454bc11d96328 | https://github.com/bufbuild/protoc-gen-validate/archive/refs/tags/v1.2.1.tar.gz |
+| xds | 49535f3c3370004309da50194c09bbfc528d4702424dd46e7d56a278a3dfc15d | https://github.com/cncf/xds/archive/ee656c7534f5d7dc23d44dd611689568f72017a6.tar.gz |
+
+oha v1.16.0 (2026-08-23, MIT), the M3 candidate: a Rust load generator whose HTTP/2 client is hyper's
+h2, built by its release workflow for x86_64-unknown-linux-musl.
+
+| File | Bytes | sha256 | URL | Digest source |
+|---|---|---|---|---|
+| oha-linux-amd64 | 13,429,032 | 620bb9e16fb53eabc9a3fc45f88bdb41fefa3fee5c05e75892011ce320391716 | https://github.com/hatoo/oha/releases/download/v1.16.0/oha-linux-amd64 | release asset `digest` |
+
+Its README lists `--http2`, `-m POST`, `-D <file>` (the body, raw bytes), `-H`, `-c` connections and
+`-p` streams per connection, `-z` duration, `--worker-threads`, `--no-tui` and JSON output. It does
+not read gRPC's trailers, so the server log's failed count (which counts every non-OK grpc-status)
+is the check of each call.
+
 ## Not yet pinned
 
-- gRPC C++ for the reference arm G (Alex's decision D-G: built after arms R and P).
+- gRPC C++ for the reference arm G (Alex's decision D-G: built after arms R and P): drafted as
+  Lab request 5 above.
 - The system OpenSSL and zlib that h2load links on Arch: their versions are recorded by the job
   (`pacman -Q openssl zlib`), not pinned. Windows runs use ghz instead (Alex, 2026-10-30,
   `design/revision-log.md`), since a MinGW build of nghttp2 is the library only.

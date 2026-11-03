@@ -4,16 +4,21 @@
 """The seeded run orders of the P5 campaigns (hypotheses.md sections 2 and 3, design D9), written
 before the first build or window. Standard library only; deterministic.
 
-Each order's seed is the first 8 hex digits of sha256("P5 campaign <experiment> <os>"), read as an
-integer, and drives one random.Random:
+Each order's seed is the first 8 hex digits of sha256("<prefix> <experiment> <os>"), read as an
+integer, and drives one random.Random. The prefix is "P5 campaign" for the first campaign
+(bench/campaign/) and "P5 replication" for the replication of hypotheses-r2.md (bench/campaign-r2/),
+whose new labels give new seeds:
   compile  10 replicates; in each, the 18 cells (wide and many at 16 to 4096 fields) in a shuffled
            order, and the two builds of each pair (R and P) in a shuffled order. 360 builds.
            R many 4096 carries ops_limit 67108864 (the secondary curve), every other build 0.
   e2e      10 replicates; in each, the two payloads in a shuffled order, and per payload the four
            arms (R, P, Q, S) in a shuffled order. 80 server runs.
+  mixed    (replication only, Linux; hypotheses-r2.md section 4; label "P5 mixed e2e linux")
+           10 replicates; in each, the four arms in a shuffled order. 40 server runs.
 
 The files under bench/campaign/ are the orders the jobs follow; this script only made them.
-Usage: campaign_order.py OUT_DIR   writes compile-order-{linux,windows}.tsv, e2e-order-{linux,windows}.tsv
+Usage: campaign_order.py OUT_DIR        writes compile-order-{linux,windows}.tsv, e2e-order-{linux,windows}.tsv
+       campaign_order.py --r2 OUT_DIR   writes the replication's four orders and mixed-order-linux.tsv
 """
 from __future__ import annotations
 
@@ -34,8 +39,8 @@ def seed_of(label: str) -> int:
     return int(hashlib.sha256(label.encode("ascii")).hexdigest()[:8], 16)
 
 
-def compile_order(os_name: str) -> tuple[str, list[str]]:
-    label = f"P5 campaign compile {os_name}"
+def compile_order(os_name: str, prefix: str = "P5 campaign") -> tuple[str, list[str]]:
+    label = f"{prefix} compile {os_name}"
     rng = random.Random(seed_of(label))
     lines = ["index\trep\tpair\tshape\tn\tgen\tops_limit"]
     index = 0
@@ -52,8 +57,8 @@ def compile_order(os_name: str) -> tuple[str, list[str]]:
     return label, lines
 
 
-def e2e_order(os_name: str) -> tuple[str, list[str]]:
-    label = f"P5 campaign e2e {os_name}"
+def e2e_order(os_name: str, prefix: str = "P5 campaign") -> tuple[str, list[str]]:
+    label = f"{prefix} e2e {os_name}"
     rng = random.Random(seed_of(label))
     lines = ["index\trep\tpayload\tarm"]
     index = 0
@@ -69,19 +74,42 @@ def e2e_order(os_name: str) -> tuple[str, list[str]]:
     return label, lines
 
 
+def mixed_order() -> tuple[str, list[str]]:
+    label = "P5 mixed e2e linux"
+    rng = random.Random(seed_of(label))
+    lines = ["index\trep\tarm"]
+    index = 0
+    for rep in range(1, REPLICATES + 1):
+        arms = list(ARMS)
+        rng.shuffle(arms)
+        for arm in arms:
+            index += 1
+            lines.append(f"{index}\t{rep}\t{arm}")
+    return label, lines
+
+
+def write(path: pathlib.Path, label: str, lines: list[str]) -> None:
+    head = f"# {label}; seed {seed_of(label)} (sha256 of the label, first 8 hex digits); bench/campaign_order.py"
+    path.write_text("\n".join([head] + lines) + "\n", encoding="ascii", newline="\n")
+    print(f"{path.name}: {len(lines) - 1} lines, seed {seed_of(label)}")
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
+    args = sys.argv[1:]
+    r2 = args[:1] == ["--r2"]
+    if r2:
+        args = args[1:]
+    if len(args) != 1:
         print(__doc__, file=sys.stderr)
         return 2
-    out = pathlib.Path(sys.argv[1])
+    out = pathlib.Path(args[0])
     out.mkdir(parents=True, exist_ok=True)
+    prefix = "P5 replication" if r2 else "P5 campaign"
     for name, make in (("compile", compile_order), ("e2e", e2e_order)):
         for os_name in ("linux", "windows"):
-            label, lines = make(os_name)
-            head = f"# {label}; seed {seed_of(label)} (sha256 of the label, first 8 hex digits); bench/campaign_order.py"
-            path = out / f"{name}-order-{os_name}.tsv"
-            path.write_text("\n".join([head] + lines) + "\n", encoding="ascii", newline="\n")
-            print(f"{path.name}: {len(lines) - 1} lines, seed {seed_of(label)}")
+            write(out / f"{name}-order-{os_name}.tsv", *make(os_name, prefix))
+    if r2:
+        write(out / "mixed-order-linux.tsv", *mixed_order())
     return 0
 
 

@@ -567,3 +567,29 @@ what the analysis already computed; none changes a number.
 - With the same inputs and arguments as `results/provenance.md` gives, `summary.json`, the printed
   report and `tables/compile.tex` are byte-identical to the committed ones, and two runs wrote the same
   bytes for every output.
+
+## 2026-11-03. Second freeze: the replication and mixed traffic (hypotheses-r2.md)
+
+Alex answered Q20261103-p5-1 ("P5-1: Just run them, yes.", `lab/pipeline/questions.md`), which listed
+Grok round 1's runs M1(a) to M4. This entry covers M1(a) and M4; M2 and M3 wait on downloads.
+- `hypotheses-r2.md` (new, frozen by the commit that adds it): the replication's families fixed by a
+  rule applied to the first campaign's results (they come out as the first freeze's 36 and 7), the
+  replication itself with new seeds, and a mixed-traffic experiment on Linux with its own family of 2.
+  `hypotheses.md` is not changed.
+- `bench/campaign_order.py`: `--r2` writes the replication's orders under labels that begin "P5
+  replication", and the mixed-traffic order; without it the script writes the first campaign's
+  orders byte for byte as before (checked). `bench/campaign-r2/` holds the five orders.
+- `server/write_bodies.cpp`: also writes `smaller.bin` and `smaller.pb`, the smaller order as
+  `test_allocs` builds it. It is not a measured program and is in none of the four measured
+  targets, so their inputs and the D5 records' coverage are unchanged; the small and medium bodies
+  are checked byte for byte against the first campaign's.
+- `analysis/analyse_r2.py` (new) runs `analysis/analyse.py`'s code, unchanged, on the replication's
+  folders with their order digests, applies the family rule to `results/summary.json` and stops if
+  it differs from the frozen tables, analyses the mixed traffic, and writes `results-r2/`, its macros
+  prefixed `Rep` (replication) or named `Mix` (mixed traffic). `analysis/test_analyse_r2.py`: 9 tests
+  on synthetic folders and on the committed first-campaign results; all 31 analysis tests pass.
+- No first-campaign number or file under `results/` changes.
+- `bench/coverage.json`: a declared gap for `write_bodies` (no sanitizer record covers its new
+  version; its bodies are checked by digest instead). `bench/pins.md`: Lab request 5, a draft spec of
+  gRPC 1.84.2 with its dependencies and oha 1.16.0 for M2 and M3; nothing is downloaded until Alex
+  answers Q20261103-p5-3. `bench/requests/replication.md` and `mixed-traffic.md`: requests 27 to 31.

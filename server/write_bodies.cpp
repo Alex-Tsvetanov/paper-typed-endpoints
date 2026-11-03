@@ -6,7 +6,9 @@
 // --binary-file. Each file is read back and must frame (the .bin) and parse.
 //
 // Usage: write_bodies <folder>   writes small.bin and small.pb (a Person), medium.bin and medium.pb
-// (an Order)
+// (an Order), and smaller.bin and smaller.pb: the medium Order without its last item and its
+// customer, the smaller order test_allocs alternates with (the mixed-traffic windows,
+// hypotheses-r2.md section 4)
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -69,6 +71,15 @@ int main(int argc, char** argv) {
     }
     const bool small = write_body<bench::e2e::Person>(folder, "small", e2e::small_request());
     const bool medium = write_body<bench::e2e::Order>(folder, "medium", e2e::medium_request());
-    std::printf("write_bodies: small %s, medium %s\n", small ? "ok" : "FAILED", medium ? "ok" : "FAILED");
-    return small && medium ? 0 : 1;
+    // As test_allocs builds its smaller order: the medium request less its last item and customer.
+    bench::e2e::Order shorter;
+    bool smaller = shorter.ParseFromString(e2e::medium_request()) && shorter.items_size() > 1 && shorter.has_customer();
+    if (smaller) {
+        shorter.mutable_items()->RemoveLast();
+        shorter.clear_customer();
+        smaller = write_body<bench::e2e::Order>(folder, "smaller", shorter.SerializeAsString());
+    }
+    std::printf("write_bodies: small %s, medium %s, smaller %s\n", small ? "ok" : "FAILED", medium ? "ok" : "FAILED",
+                smaller ? "ok" : "FAILED");
+    return small && medium && smaller ? 0 : 1;
 }
