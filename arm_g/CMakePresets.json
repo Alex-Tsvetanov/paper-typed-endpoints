@@ -1,0 +1,47 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "g-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/../build/arm_g-${presetName}",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "$env{HOME}/opt/gcc-16.2.0/bin/g++"
+      }
+    },
+    {
+      "name": "g-release",
+      "inherits": "g-base",
+      "displayName": "Arm G, pinned GCC 16.2.0, Release -O2, on bench/build_grpc.sh's prefix ~/opt/grpc-1.84.2",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -DNDEBUG",
+        "CMAKE_EXE_LINKER_FLAGS": "-static-libstdc++ -static-libgcc",
+        "TEP_GRPC_ROOT": "$env{HOME}/opt/grpc-1.84.2"
+      }
+    },
+    {
+      "name": "g-asan",
+      "inherits": "g-base",
+      "displayName": "Arm G, ASan and UBSan, on a prefix built with the same flags (EXTRA_FLAGS of build_grpc.sh)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-sanitize=null,nonnull-attribute,returns-nonnull-attribute -fno-sanitize-recover=all -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-rpath,$env{HOME}/opt/gcc-16.2.0/lib64",
+        "TEP_GRPC_ROOT": "$env{HOME}/opt/grpc-1.84.2-asan"
+      }
+    },
+    {
+      "name": "g-tsan",
+      "inherits": "g-base",
+      "displayName": "Arm G, TSan, on a prefix built with the same flags (EXTRA_FLAGS of build_grpc.sh)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-Wl,-rpath,$env{HOME}/opt/gcc-16.2.0/lib64",
+        "TEP_GRPC_ROOT": "$env{HOME}/opt/grpc-1.84.2-tsan"
+      }
+    }
+  ]
+}

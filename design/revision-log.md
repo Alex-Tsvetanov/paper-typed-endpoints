@@ -611,3 +611,24 @@ digests checked (`bench/pins.md`, Lab request 5). This entry covers M3.
 - Before the freeze, a functional check in papers-dev (no network, count mode, no rate read): oha
   1.16.0 completed calls on every arm and payload of the server over cleartext HTTP/2 with only 200
   responses and no errors, and each server log said `failed 0`.
+
+## 2026-11-03. Fourth freeze: a gRPC C++ reference arm, G (hypotheses-m2.md)
+
+The second half of Alex's answer to Q20261103-p5-3: M2, Grok round 1's request for a gRPC C++ arm.
+- `bench/build_grpc.sh` (new) builds gRPC 1.84.2 with abseil 20250512.1, protobuf 36.2 (with
+  libprotoc), c-ares 1.34.9 and re2 2025-11-05 into one prefix, with arm P's flags, from the pinned
+  downloads, without network. In papers-dev it built against protobuf 36.2 with 0 errors (deprecation
+  warnings only), so the version mismatch with gRPC's own protobuf 35.1 pin did not matter.
+- `arm_g/` (new), a CMake project of its own outside the measured-code guard's paths: `g_server.cpp`
+  (the async completion-queue API, one polling thread, 2,048 outstanding requests per method,
+  reused call slots), `test_g.cpp`, presets for Release, ASan with UBSan, and TSan. In papers-dev the
+  test passed, and h2load drove the Release server in count mode for both payloads at c1 m1 and
+  c12 m128: 80,000 calls, 0 failed, only 2xx, and the server's count exact. G took several seconds
+  to print its ready line there (a large binary read over the desktop's file share); the jobs wait
+  for that line.
+- `hypotheses-m2.md` (new, frozen by the commit that adds it): R against G, two-sided, in 4 cells on
+  Linux, its own family; P and Q against G descriptive.
+- `bench/campaign_order.py --m2` writes `bench/campaign-m2/g-order-linux.tsv`; earlier orders are
+  unchanged (checked). `analysis/analyse_m2.py` (new) and its 5 tests; macros named `Grpc*`.
+- `bench/coverage.json`: arm G's records and its MemorySanitizer gap.
+- `bench/requests/grpc.md`: Laptop requests 34 (gRPC builds), 35 (records), 36 (G build and campaign).

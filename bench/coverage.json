@@ -37,5 +37,11 @@
     "generated": "gap: the files each build generates (schema.proto and the user program from bench/gen_schema.py; protoc's schema.pb.* for P) are compiled but in no sanitizer record. The measured quantities are the compiler's time and memory; the program's one run is a functional check, not a measurement"
   },
   "request_bodies": "gap (2026-11-03, hypotheses-r2.md section 5): server/write_bodies.cpp writes the bodies the load generators send (small, medium and, for the mixed traffic, smaller). It is in no measured target and, since it gained the smaller order after the records of 9a3dc92, in no sanitizer record. Its output is checked instead: every build job checks each body's sha256 against the values in bench/requests/replication.md (small and medium byte for byte the first campaign's), and write_bodies reads each file back and parses it with protobuf before it exits 0",
-  "third_party": "protoc, libprotobuf, nghttp2, grpc-go and the load generator are pinned arms or tools, not sanitized first-party code"
+  "arm_g": {
+    "scope": "arm G (hypotheses-m2.md): arm_g/g_server.cpp, its first-party code, and the e2e.pb.* and e2e.grpc.pb.* that protoc 36.2 and grpc_cpp_plugin generate; Linux only",
+    "gcc_asan_ubsan": "planned (Laptop request 35, preset g-asan): test_g and the sanitized g_server under h2load, with gRPC, protobuf, abseil, c-ares and re2 built under the same flags (bench/build_grpc.sh, EXTRA_FLAGS); UBSan without null, nonnull-attribute and returns-nonnull-attribute, as the reflection layer's records (design/compiler-findings.md F2): with them GCC 16 cannot constant-evaluate abseil's hash_policy_traits.h",
+    "gcc_tsan": "planned (Laptop request 35, preset g-tsan), as above under ThreadSanitizer",
+    "msan": "gap: GCC has no MemorySanitizer, and a clang MemorySanitizer build would need gRPC and every dependency built instrumented with clang"
+  },
+  "third_party": "protoc, libprotobuf, nghttp2, grpc-go, gRPC C++ (arm G's library) and the load generators are pinned arms or tools, not sanitized first-party code"
 }

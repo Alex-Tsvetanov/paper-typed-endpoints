@@ -118,7 +118,11 @@ design note maps each erratum to the P5 test or experiment that replaces it.
       analysis `analysis/analyse_r2.py`, macros `Rep*` and `Mix*` in `results-r2/`), laptop requests 27 to 31. M2 (gRPC C++ arm G)
       and M3 (oha): Alex said yes to the downloads (Q20261103-p5-3, option 1); all ten checked (Lab request 5).
       M3 frozen in `hypotheses-m3.md` (oha pilot with a 95% saturation gate, then a campaign), laptop requests 32, 33.
-      M2: gRPC 1.84.2 build check and arm G (`arm_g/`, a standalone project outside the guarded paths) next.
+      M2 frozen in `hypotheses-m2.md` (arm G, gRPC C++ 1.84.2, async completion queue, `arm_g/` outside the guarded
+      paths; R against G two-sided in 4 cells, macros `Grpc*` in `results-m2/`), laptop requests 34 to 36. Desktop checks
+      (untimed, papers-dev): the Release prefix builds; test_g and 80,000 h2load calls pass on the Release G. The first
+      ASan prefix build stopped on F2 (flags fixed); later sanitized builds were cut by Docker, not by the build, so
+      request 34 is the first complete sanitized gRPC build and request 35 the first G records.
 - [x] Q20261103-p5-2 (option 1): the seven archives are release data-2026-11 at 9a36115.
 
 ## Laptop requests
@@ -144,6 +148,7 @@ queue; design, scope and pushes still go to Alex.
 22. to 26. Done at CODE_FREEZE (`results/provenance.md`): 22 to 25 A55; 26 (`functional-evidence.md`, untimed) A59, 3aaaebef...3ef8.
 27. to 31. Queued 2026-11-03 at R2_FREEZE (`hypotheses-r2.md`): the replication 27 to 30 (`replication.md`), mixed traffic 31 (`mixed-traffic.md`).
 32. and 33. At M3_FREEZE (`hypotheses-m3.md`, `oha.md`): the oha pilot and, after a passed gate, its campaign.
+34. to 36. At M2_FREEZE (`hypotheses-m2.md`, `grpc.md`): three gRPC prefixes, arm G's D5 records, then G's build and campaign.
 
 ## Lab requests
 
