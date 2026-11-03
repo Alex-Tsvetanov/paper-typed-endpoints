@@ -4,6 +4,7 @@ Read this first. Keep it under 200 lines. Brief: `Papers/p5-typed-endpoints/AGEN
 Plan: `Papers/plan/merged-plan-v2.md` section 2.5 and P5's row in section 3.2.
 Design: `design/design-note.md` (DRAFT, not frozen). Compiler defects: `design/compiler-findings.md`.
 Reporting: this session reports to the coordinator; read Papers `CLAUDE.md`, "Coordinator" (Alex, 2026-10-29).
+Pipeline: D:\Dev\GitHub\Papers\lab\pipeline\README.md and state/p5.json; re-read both after any compaction.
 
 ## What P5 is
 
